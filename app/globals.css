@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #2C2C2B;
+  --color-muted: #7D7A75;
+  --color-line: #E6E5E3;
+  --color-soft: #F9F8F7;
+  --color-brand: #2783DE;
+}
+
+:root {
+  --bg: #F9F8F7;
+  --ink: #2C2C2B;
+  --muted: #7D7A75;
+  --line: #E6E5E3;
+  --brand: #2783DE;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.card {
+  @apply bg-white border border-line rounded-2xl p-6 shadow-sm;
+}
+
+.btn {
+  @apply inline-flex items-center gap-2 rounded-xl bg-brand px-4 py-3 font-semibold text-white hover:brightness-95;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center gap-2 rounded-xl border border-line bg-white px-4 py-3 font-semibold text-ink hover:bg-soft;
+}
+
+.input {
+  @apply w-full rounded-xl border border-line bg-white px-3 py-3 outline-none focus:ring-2 focus:ring-blue-200;
+}
+
+.label {
+  @apply text-sm font-semibold text-ink;
+}
+
+.pill {
+  @apply inline-flex rounded-full px-3 py-1 text-xs font-bold;
+}
+
+.pill-green {
+  @apply bg-green-50 text-green-700;
+}
+
+.pill-gray {
+  @apply bg-stone-100 text-stone-600;
+}
+
+th {
+  @apply bg-stone-50 text-left text-xs font-bold uppercase tracking-wide text-muted;
+}
+
+td,
+th {
+  @apply border-b border-line px-3 py-3 align-top;
+}
+
+tr {
+  @apply hover:bg-blue-50;
+}
