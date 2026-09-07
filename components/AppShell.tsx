@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { Activity, Database, FileSpreadsheet, Search, ShieldCheck, Eye } from 'lucide-react'
-import { getCurrentUserProfile } from '@/lib/supabase-server'
 import LogoutButton from './LogoutButton'
+import { getCurrentUserProfile } from '@/lib/supabase-server'
 
 const nav = [
   ['/dashboard', Activity, 'Dashboard', 'viewer'],
