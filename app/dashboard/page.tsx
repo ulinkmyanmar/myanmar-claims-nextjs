@@ -1,6 +1,86 @@
+"use client"
+
+import {useState} from "react";
+
+
+export default function Dashboard(){
+
+const [keyword,setKeyword]=useState("");
+const [results,setResults]=useState([]);
+
+
+async function search(){
+
+const res=
+await fetch(
+`/api/claims/search?q=${keyword}`
+);
+
+const data=await res.json();
+
+setResults(data);
+
+}
+
+
+return (
+
+<div>
+
+<input
+value={keyword}
+onChange={
+e=>setKeyword(e.target.value)
+}
+/>
+
+
+<button onClick={search}>
+Search
+</button>
+
+
+<table>
+
+<tbody>
+
+{
+results.map((item:any)=>(
+
+<tr key={item.id}>
+
+<td>
+{item.claim_no}
+</td>
+
+<td>
+{item.client_name}
+</td>
+
+<td>
+{item.claim_status}
+</td>
+
+</tr>
+
+))
+}
+
+</tbody>
+
+</table>
+
+
+</div>
+
+)
+
+}
+
 import AppShell from '@/components/AppShell'
 import { Search } from 'lucide-react'
 import Link from 'next/link'
 import { COVERAGE_DATE, CURRENT_VERSION } from '@/lib/constants'
 export default function Dashboard(){return <AppShell><section className="rounded-3xl border border-line bg-gradient-to-br from-white to-blue-50 p-10"><p className="text-xs font-bold uppercase tracking-widest text-brand">Current claims snapshot</p><h1 className="mt-3 max-w-3xl text-4xl font-bold">Historical claims are covered through {COVERAGE_DATE}.</h1><p className="mt-4 max-w-2xl text-lg text-muted">Search individual members now. Bulk census checking and controlled database refresh are included as Phase 2 and Phase 3 modules.</p><Link href="/search" className="btn mt-6"><Search size={18}/> Search Member Claims History</Link></section><div className="mt-6 grid grid-cols-3 gap-4"><Metric label="Database version" value={CURRENT_VERSION}/><Metric label="Historical members" value="3 demo"/><Metric label="Claims records" value="3 demo"/></div></AppShell>}
 function Metric({label,value}:{label:string,value:string}){return <div className="card"><p className="text-muted">{label}</p><b className="mt-2 block text-2xl">{value}</b></div>}
+
