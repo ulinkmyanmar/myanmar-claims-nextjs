@@ -1,46 +1,62 @@
-import Link from 'next/link'
-import { Activity, Database, FileSpreadsheet, Search, ShieldCheck, Eye } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
+import SidebarNav from './SidebarNav'
 import LogoutButton from './LogoutButton'
 import { getCurrentUserProfile } from '@/lib/supabase-server'
 
-const nav = [
-  ['/dashboard', Activity, 'Dashboard', 'viewer'],
-  ['/search', Search, 'Search Member', 'viewer'],
-  ['/bulk-census', FileSpreadsheet, 'Bulk Census', 'viewer'],
-  ['/database-management', Database, 'Database', 'admin'],
-  ['/audit-logs', Eye, 'Audit Logs', 'admin'],
-] as const
-
-export default async function AppShell({ children }: { children: React.ReactNode }) {
+export default async function AppShell({
+  children,
+  title,
+  subtitle,
+}: {
+  children: React.ReactNode
+  title?: string
+  subtitle?: string
+}) {
   const profile = await getCurrentUserProfile()
   const role = profile?.role ?? 'viewer'
+  const fullName = profile?.full_name ?? 'Admin Myanmar'
+  const initials = fullName
+    .split(' ')
+    .map((p: string) => p[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
 
   return (
-    <div className="grid min-h-screen grid-cols-[260px_1fr]">
-      <aside className="border-r border-line bg-white p-6">
-        <div className="mb-8 flex items-center gap-2 text-lg font-bold text-brand">
-          <ShieldCheck /> Myanmar Claims
+    <div className="grid min-h-screen grid-cols-[260px_1fr] bg-soft">
+      <aside className="flex flex-col border-r border-line bg-white p-6">
+        <div className="mb-8 flex items-center gap-3">
+          <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand font-bold text-white">U</div>
+          <b className="tracking-wide">MYANMAR CLAIMS</b>
         </div>
-        <nav className="grid gap-2">
-          {nav
-            .filter(([, , , minRole]) => minRole === 'viewer' || role === 'admin')
-            .map(([href, Icon, label]) => (
-              <Link className="rounded-xl px-3 py-3 font-semibold hover:bg-blue-50" href={href} key={href}>
-                <span className="inline-flex items-center gap-2">
-                  <Icon size={18} />
-                  {label}
-                </span>
-              </Link>
-            ))}
-        </nav>
+
+        <SidebarNav role={role} />
+
+        <div className="mt-auto rounded-2xl border border-line p-4">
+          <div className="flex items-center gap-3">
+            <div className="grid h-9 w-9 place-items-center rounded-full bg-blue-100 font-bold text-brand">
+              {initials || 'AM'}
+            </div>
+            <div>
+              <b className="block text-sm">{fullName}</b>
+              <span className="text-xs text-muted">{role === 'admin' ? 'Admin role' : 'Viewer role'}</span>
+            </div>
+          </div>
+          <div className="mt-3">
+            <LogoutButton />
+          </div>
+        </div>
       </aside>
+
       <main>
         <header className="flex items-center justify-between border-b border-line bg-white px-8 py-5">
           <div>
-            <b>Welcome, {profile?.full_name ?? 'User'}</b>
-            <p className="text-sm text-muted">Historical claims covered through 30-Jun-2026</p>
+            <b className="text-lg">{title ?? 'Dashboard'}</b>
+            <p className="text-sm text-muted">{subtitle ?? 'Claims History Checking System'}</p>
           </div>
-          <LogoutButton />
+          <div className="grid h-9 w-9 place-items-center rounded-full bg-blue-50 font-bold text-brand">
+            <ShieldCheck size={18} />
+          </div>
         </header>
         <div className="p-8">{children}</div>
       </main>
