@@ -15,9 +15,7 @@ export default function BulkCensusPage() {
           Phase 2 module for standardized .xlsx census upload and batch matching.
         </p>
 
-
         <BulkCensusClient />
-
 
         <div className="mt-8 rounded-2xl border border-line bg-stone-50 p-6">
 
