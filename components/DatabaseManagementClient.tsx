@@ -40,6 +40,27 @@ export default function DatabaseManagementClient() {
   const [message, setMessage] =
   useState('')
 
+  type SyncHistoryItem = {
+  version: string
+  coverageDate: string
+  status: "Active" | "Archived"
+  method: string
+  updatedBy: string
+  updatedOn: string
+}
+
+const [syncHistory, setSyncHistory] =
+  useState<SyncHistoryItem[]>([
+    {
+      version: CURRENT_VERSION,
+      coverageDate: COVERAGE_DATE,
+      status: "Active",
+      method: "Initial snapshot",
+      updatedBy: "Admin Myanmar",
+      updatedOn: "Initial snapshot",
+    },
+  ])
+
 
   function chooseFile() {
     fileInputRef.current?.click()
@@ -111,17 +132,85 @@ export default function DatabaseManagementClient() {
 
   function confirmSync() {
 
-    if (!validated) {
-      setMessage(
-        'Please validate and preview the snapshot before activating it.'
-      )
-      return
-    }
-
+  if (!validated) {
     setMessage(
-      'Sync activation is not connected yet. The current database remains unchanged.'
+      'Please validate and preview the snapshot before activating it.'
     )
+    return
   }
+
+  if (!version.trim() || !coverageDate) {
+    setMessage(
+      'Snapshot version and coverage date are required.'
+    )
+    return
+  }
+
+  const formattedCoverageDate =
+    new Date(
+      `${coverageDate}T00:00:00`
+    )
+      .toLocaleDateString(
+        'en-GB',
+        {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        }
+      )
+      .replace(/ /g, '-')
+
+  const updatedOn =
+    new Date()
+      .toLocaleDateString(
+        'en-GB',
+        {
+          timeZone: 'Asia/Singapore',
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        }
+      )
+      .replace(/ /g, '-')
+
+
+  setSyncHistory(previous => {
+
+    const archived =
+      previous.map(item => ({
+        ...item,
+
+        status:
+          item.status === "Active"
+            ? "Archived" as const
+            : item.status,
+      }))
+
+    return [
+      {
+        version: version.trim(),
+        coverageDate:
+          formattedCoverageDate,
+        status: "Active",
+        method:
+          "Controlled sync / upsert",
+        updatedBy:
+          "Admin Myanmar",
+        updatedOn,
+      },
+
+      ...archived,
+    ]
+  })
+
+
+  setValidated(false)
+  setPreview(false)
+
+  setMessage(
+    'Synchronization confirmed. The new snapshot is now active and the previous snapshot has been archived.'
+  )
+}
 
 
   return (
@@ -611,37 +700,51 @@ export default function DatabaseManagementClient() {
 
             <tbody>
 
-              <tr>
+  {syncHistory.map((item, index) => (
 
-                <td>
-                  {CURRENT_VERSION}
-                </td>
+    <tr
+      key={`${item.version}-${index}`}
+    >
 
-                <td>
-                  {COVERAGE_DATE}
-                </td>
+      <td>
+        {item.version}
+      </td>
 
-                <td>
-                  <span className="pill pill-green">
-                    Active
-                  </span>
-                </td>
+      <td>
+        {item.coverageDate}
+      </td>
 
-                <td>
-                  Initial snapshot
-                </td>
+      <td>
 
-                <td>
-                  Admin Myanmar
-                </td>
+        <span
+          className={
+            item.status === "Active"
+              ? "pill pill-green"
+              : "pill pill-gray"
+          }
+        >
+          {item.status}
+        </span>
 
-                <td>
-                  Initial snapshot
-                </td>
+      </td>
 
-              </tr>
+      <td>
+        {item.method}
+      </td>
 
-            </tbody>
+      <td>
+        {item.updatedBy}
+      </td>
+
+      <td>
+        {item.updatedOn}
+      </td>
+
+    </tr>
+
+  ))}
+
+</tbody>
 
           </table>
 
