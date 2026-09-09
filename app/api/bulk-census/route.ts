@@ -8,16 +8,21 @@ type CensusRow = {
   gender?: string
 }
 
+function normalize(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s\-().]/g, "")
+}
+
 export async function POST(req: Request) {
   try {
-    const supabase =
-      await getSupabaseServerClient()
+    const supabase = await getSupabaseServerClient()
 
     if (!supabase) {
       return NextResponse.json(
         {
-          error:
-            "Supabase is not configured.",
+          error: "Supabase is not configured.",
         },
         { status: 500 }
       )
@@ -33,8 +38,7 @@ export async function POST(req: Request) {
     if (rows.length === 0) {
       return NextResponse.json(
         {
-          error:
-            "No census records were provided.",
+          error: "No census records were provided.",
         },
         { status: 400 }
       )
@@ -43,22 +47,11 @@ export async function POST(req: Request) {
     const results = []
 
     for (const row of rows) {
-      const name =
-        String(row.name ?? "").trim()
+      const name = String(row.name ?? "").trim()
+      const nrc = String(row.nrc ?? "").trim()
+      const dob = String(row.dob ?? "").trim()
+      const gender = String(row.gender ?? "").trim()
 
-      const nrc =
-        String(row.nrc ?? "").trim()
-
-      const dob =
-        String(row.dob ?? "").trim()
-
-      const gender =
-        String(row.gender ?? "").trim()
-
-
-      /*
-       * No usable identity information.
-       */
       if (!name && !nrc) {
         results.push({
           name,
@@ -72,45 +65,37 @@ export async function POST(req: Request) {
         continue
       }
 
-
       /*
-       * Search mcs_claims.
+       * Get possible records from mcs_claims.
        *
-       * Current database fields:
-       *
+       * Database fields currently available:
        * client_name
        * passport_no
-       *
-       * DOB and Gender are not in mcs_claims,
-       * so they are not used for matching.
        */
-      let query =
-        supabase
-          .from("mcs_claims")
-          .select("*")
+      let query = supabase
+        .from("mcs_claims")
+        .select("*")
 
-
-      if (name) {
+      if (name && nrc) {
+        query = query
+          .ilike("client_name", `%${name}%`)
+          .ilike("passport_no", `%${nrc}%`)
+      } else if (name) {
         query = query.ilike(
           "client_name",
           `%${name}%`
         )
-      }
-
-
-      if (nrc) {
-        query = query.eq(
+      } else {
+        query = query.ilike(
           "passport_no",
-          nrc
+          `%${nrc}%`
         )
       }
-
 
       const {
         data,
         error,
       } = await query
-
 
       if (error) {
         console.error(
@@ -126,10 +111,49 @@ export async function POST(req: Request) {
         )
       }
 
+      let claims = data ?? []
 
-      const claims =
-        data ?? []
+      /*
+       * If both Name and NRC are supplied,
+       * perform an additional normalized check.
+       *
+       * This makes matching tolerant of:
+       * John Tan
+       * JOHN TAN
+       *  E1234567
+       * E-1234567
+       */
+      if (name && nrc) {
+        const normalizedName =
+          normalize(name)
 
+        const normalizedNrc =
+          normalize(nrc)
+
+        claims = claims.filter(
+          (claim: any) => {
+
+            const dbName =
+              normalize(
+                String(
+                  claim.client_name ?? ""
+                )
+              )
+
+            const dbNrc =
+              normalize(
+                String(
+                  claim.passport_no ?? ""
+                )
+              )
+
+            return (
+              dbName.includes(normalizedName) &&
+              dbNrc.includes(normalizedNrc)
+            )
+          }
+        )
+      }
 
       results.push({
         name,
@@ -145,7 +169,6 @@ export async function POST(req: Request) {
         claims,
       })
     }
-
 
     return NextResponse.json({
       results,
