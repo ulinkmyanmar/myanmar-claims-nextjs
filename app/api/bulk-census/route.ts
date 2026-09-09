@@ -1,33 +1,41 @@
-import { NextResponse } from 'next/server'
-import { getSupabaseServerClient } from '@/lib/supabase-server'
+import { NextResponse } from "next/server"
+import { getSupabaseServerClient } from "@/lib/supabase-server"
 
 type CensusRow = {
-  name: string
-  nrc: string
-  dob: string
-  gender: string
+  name?: string
+  nrc?: string
+  dob?: string
+  gender?: string
 }
 
 export async function POST(req: Request) {
   try {
-    const supabase = await getSupabaseServerClient()
+    const supabase =
+      await getSupabaseServerClient()
 
     if (!supabase) {
       return NextResponse.json(
-        { error: 'Supabase is not configured.' },
+        {
+          error:
+            "Supabase is not configured.",
+        },
         { status: 500 }
       )
     }
 
     const body = await req.json()
 
-    const rows: CensusRow[] = Array.isArray(body?.rows)
-      ? body.rows
-      : []
+    const rows: CensusRow[] =
+      Array.isArray(body?.rows)
+        ? body.rows
+        : []
 
     if (rows.length === 0) {
       return NextResponse.json(
-        { error: 'No census records were provided.' },
+        {
+          error:
+            "No census records were provided.",
+        },
         { status: 400 }
       )
     }
@@ -35,66 +43,126 @@ export async function POST(req: Request) {
     const results = []
 
     for (const row of rows) {
-      const name = String(row.name ?? '').trim()
-      const nrc = String(row.nrc ?? '').trim()
+      const name =
+        String(row.name ?? "").trim()
 
+      const nrc =
+        String(row.nrc ?? "").trim()
+
+      const dob =
+        String(row.dob ?? "").trim()
+
+      const gender =
+        String(row.gender ?? "").trim()
+
+
+      /*
+       * No usable identity information.
+       */
       if (!name && !nrc) {
         results.push({
-          ...row,
-          status: 'No history',
+          name,
+          nrc,
+          dob,
+          gender,
+          status: "No history",
           claims: [],
         })
 
         continue
       }
 
-      let query = supabase
-        .from('mcs_claims')
-        .select('*')
 
-      if (name && nrc) {
-        query = query
-          .ilike('client_name', name)
-          .ilike('passport_no', nrc)
-      } else if (name) {
+      /*
+       * Search mcs_claims.
+       *
+       * Current database fields:
+       *
+       * client_name
+       * passport_no
+       *
+       * DOB and Gender are not in mcs_claims,
+       * so they are not used for matching.
+       */
+      let query =
+        supabase
+          .from("mcs_claims")
+          .select("*")
+
+
+      if (name) {
         query = query.ilike(
-          'client_name',
+          "client_name",
           `%${name}%`
         )
-      } else {
-        query = query.ilike(
-          'passport_no',
+      }
+
+
+      if (nrc) {
+        query = query.eq(
+          "passport_no",
           nrc
         )
       }
 
-      const { data, error } = await query
+
+      const {
+        data,
+        error,
+      } = await query
+
 
       if (error) {
+        console.error(
+          "Bulk census query error:",
+          error
+        )
+
         return NextResponse.json(
-          { error: error.message },
+          {
+            error: error.message,
+          },
           { status: 500 }
         )
       }
 
+
+      const claims =
+        data ?? []
+
+
       results.push({
-        ...row,
+        name,
+        nrc,
+        dob,
+        gender,
+
         status:
-          data && data.length > 0
-            ? 'Matched'
-            : 'No history',
-        claims: data ?? [],
+          claims.length > 0
+            ? "Matched"
+            : "No history",
+
+        claims,
       })
     }
+
 
     return NextResponse.json({
       results,
     })
+
   } catch (error) {
-    console.error(error)
+
+    console.error(
+      "Bulk census error:",
+      error
+    )
 
     return NextResponse.json(
-      { error: 'Unable to process census file.' },
+      {
+        error:
+          "Unable to process census records.",
+      },
       { status: 500 }
     )
   }
