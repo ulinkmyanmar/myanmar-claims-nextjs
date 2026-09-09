@@ -1,3 +1,38 @@
 import AppShell from '@/components/AppShell'
-import { Download, Upload } from 'lucide-react'
-export default function BulkCensusPage(){return <AppShell><section className="card"><h1 className="text-2xl font-bold">Bulk Census Checking</h1><p className="mt-2 text-muted">Phase 2 module for standardized .xlsx census upload and batch matching.</p><div className="mt-6 flex gap-3"><button className="btn-secondary"><Download size={18}/> Download Standardized Template</button><button className="btn"><Upload size={18}/> Upload Excel File</button></div><div className="mt-8 rounded-2xl border border-line bg-stone-50 p-6"><b>Planned workflow</b><p className="mt-2 text-muted">Insurer Census File → Convert into Ulink Standardized Template → Upload → System checks every member → Bulk Result Table → Click row for member detail.</p></div><table className="mt-6 w-full"><thead><tr><th>Uploaded Member</th><th>NRC / National ID</th><th>DOB</th><th>Gender</th><th>Status</th><th>Historical Member ID</th></tr></thead><tbody><tr><td>Yoon Thadar Htun</td><td>12/ABC(N)123456</td><td>11-Jul-1918</td><td>Female</td><td><span className="pill pill-green">Matched</span></td><td>HM0000001</td></tr><tr><td>Thiri Mon</td><td>—</td><td>08-Feb-1997</td><td>Female</td><td><span className="pill pill-gray">No history</span></td><td>—</td></tr></tbody></table></section></AppShell>}
+import BulkCensusClient from '@/components/BulkCensusClient'
+
+export default function BulkCensusPage() {
+  return (
+    <AppShell>
+
+      <section className="card">
+
+        <h1 className="text-2xl font-bold">
+          Bulk Census Checking
+        </h1>
+
+        <p className="mt-2 text-muted">
+          Phase 2 module for standardized .xlsx census upload and batch matching.
+        </p>
+
+
+        <BulkCensusClient />
+
+
+        <div className="mt-8 rounded-2xl border border-line bg-stone-50 p-6">
+
+          <b>
+            Planned workflow
+          </b>
+
+          <p className="mt-2 text-muted">
+            Insurer Census File → Convert into Ulink Standardized Template → Upload → System checks every member → Bulk Result Table → Click row for member detail.
+          </p>
+
+        </div>
+
+      </section>
+
+    </AppShell>
+  )
+}
