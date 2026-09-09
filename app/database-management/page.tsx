@@ -1,4 +1,10 @@
 import AppShell from '@/components/AppShell'
-import { RefreshCcw, CheckCircle2 } from 'lucide-react'
-import { COVERAGE_DATE, CURRENT_VERSION } from '@/lib/constants'
-export default function DatabaseManagementPage(){return <AppShell><section className="card"><h1 className="text-2xl font-bold">Historical Database Management</h1><p className="mt-2 text-muted">Admin-only Phase 3 module for controlled synchronization / upsert from Slim Claims File.</p><div className="mt-6 flex items-center justify-between rounded-2xl border border-line bg-stone-50 p-5"><div><p className="text-muted">Current Version</p><b className="text-xl">{CURRENT_VERSION}</b><p className="text-sm text-muted">Coverage date: {COVERAGE_DATE}</p></div><span className="pill pill-green">Active</span></div><div className="mt-6 rounded-2xl border border-line p-5"><b>Upload New Historical Snapshot</b><p className="mt-2 text-muted">Upload to staging → validate file → compare with current database → synchronize records → activate updated database → archive previous version.</p><button className="btn mt-4"><RefreshCcw size={18}/> Start Staging Upload</button></div><h2 className="mt-8 font-bold">Validation Checklist</h2><ul className="mt-3 grid gap-2 text-green-700"><li className="flex gap-2"><CheckCircle2/> Required columns</li><li className="flex gap-2"><CheckCircle2/> Total rows / unique members / unique claims</li><li className="flex gap-2"><CheckCircle2/> Duplicate claim numbers</li><li className="flex gap-2"><CheckCircle2/> Missing identifiers and invalid dates</li></ul></section></AppShell>}
+import DatabaseManagementClient from '@/components/DatabaseManagementClient'
+
+export default function DatabaseManagementPage() {
+  return (
+    <AppShell>
+      <DatabaseManagementClient />
+    </AppShell>
+  )
+}
