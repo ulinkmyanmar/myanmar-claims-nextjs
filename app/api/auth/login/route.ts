@@ -19,42 +19,28 @@ const loginSchema = z.object({
 
 export async function POST(req: Request) {
 
-  const supabase =
-    await getSupabaseServerClient()
-
-
-  // --------------------------------------------------
-  // Supabase configuration check
-  // --------------------------------------------------
+  const supabase = await getSupabaseServerClient()
 
   if (!supabase) {
-
     return NextResponse.json(
       {
         ok: false,
         error:
           'Authentication is not configured on the server yet.',
       },
-      {
-        status: 500,
-      }
+      { status: 500 }
     )
   }
 
 
-  // --------------------------------------------------
   // Validate request
-  // --------------------------------------------------
-
   const body =
     await req.json().catch(() => null)
 
   const parsed =
     loginSchema.safeParse(body)
 
-
   if (!parsed.success) {
-
     return NextResponse.json(
       {
         ok: false,
@@ -62,9 +48,7 @@ export async function POST(req: Request) {
           parsed.error.issues[0]?.message ??
           'Invalid request',
       },
-      {
-        status: 400,
-      }
+      { status: 400 }
     )
   }
 
@@ -75,10 +59,7 @@ export async function POST(req: Request) {
   } = parsed.data
 
 
-  // --------------------------------------------------
-  // Authenticate with Supabase
-  // --------------------------------------------------
-
+  // Authenticate with Supabase Auth
   const {
     data,
     error,
@@ -90,24 +71,18 @@ export async function POST(req: Request) {
 
 
   if (error || !data.user) {
-
     return NextResponse.json(
       {
         ok: false,
         error:
           'Incorrect email or password.',
       },
-      {
-        status: 401,
-      }
+      { status: 401 }
     )
   }
 
 
-  // --------------------------------------------------
   // Check authorized active profile
-  // --------------------------------------------------
-
   const {
     data: profile,
   } =
@@ -123,17 +98,10 @@ export async function POST(req: Request) {
       .maybeSingle()
 
 
-  // --------------------------------------------------
-  // Reject inactive / unauthorized account
-  // --------------------------------------------------
-
-  if (
-    !profile ||
-    !profile.active
-  ) {
+  // Reject unauthorized account
+  if (!profile || !profile.active) {
 
     await supabase.auth.signOut()
-
 
     return NextResponse.json(
       {
@@ -141,32 +109,29 @@ export async function POST(req: Request) {
         error:
           'This account is not authorized to access this system.',
       },
-      {
-        status: 403,
-      }
+      { status: 403 }
     )
   }
 
 
-  // --------------------------------------------------
-  // Record successful login
-  // --------------------------------------------------
+  // ==========================================
+  // RECORD SUCCESSFUL LOGIN
+  // ==========================================
 
   const loginTime =
     new Date().toISOString()
-
 
   const {
     error: loginLogError,
   } =
     await supabase
+      .schema('MyanmarClaimSystem')
       .from('mcs_login_logs')
       .insert({
         user_id: data.user.id,
 
         email:
-          data.user.email ??
-          email,
+          data.user.email ?? email,
 
         full_name:
           profile.full_name,
@@ -181,22 +146,18 @@ export async function POST(req: Request) {
           loginTime,
 
         CreatedByUser:
-          data.user.email ??
-          email,
+          data.user.email ?? email,
 
         ModifiedDateTime:
           loginTime,
 
         ModifiedByUser:
-          data.user.email ??
-          email,
+          data.user.email ?? email,
       })
 
 
-  // --------------------------------------------------
-  // Do NOT block login if audit logging fails
-  // --------------------------------------------------
-
+  // Login should NOT fail just because
+  // audit logging failed.
   if (loginLogError) {
 
     console.error(
@@ -207,9 +168,9 @@ export async function POST(req: Request) {
   }
 
 
-  // --------------------------------------------------
-  // Login successful
-  // --------------------------------------------------
+  // ==========================================
+  // LOGIN SUCCESS
+  // ==========================================
 
   return NextResponse.json({
     ok: true,
