@@ -1,56 +1,31 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 
+export async function GET(req: Request) {
+  const supabase = await getSupabaseServerClient();
 
-export async function GET(req: Request){
+  if (!supabase) {
+    return NextResponse.json({ error: "Not configured" }, { status: 500 });
+  }
 
- const supabase = await getSupabaseServerClient();
+  const { searchParams } = new URL(req.url);
+  const keyword = searchParams.get("q") ?? "";
 
- if(!supabase){
-   return NextResponse.json(
-    {error:"Not configured"},
-    {status:500}
-   )
- }
+  let query = supabase
+    .schema("MyanmarClaimSystem")
+    .from("mcs_claims")
+    .select("*");
 
+  if (keyword) {
+    const safe = keyword.replace(/,/g, "");
+    query = query.or(`client_name.ilike.%${safe}%,claim_no.ilike.%${safe}%,passport_no.ilike.%${safe}%`);
+  }
 
- const {searchParams}=new URL(req.url);
+  const { data, error } = await query;
 
- const keyword =
- searchParams.get("q");
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
-
- let query =
- supabase
- .schema("MyanmarClaimSystem")
- .from("mcs_claims")
- .select("*");
-
-
- if(keyword){
-
- query=query.or(
- `
- client_name.ilike.%${keyword}%,
- claim_no.ilike.%${keyword}%,
- hospital_name.ilike.%${keyword}%
- `
- );
-
- }
-
-
- const {data,error}=await query;
-
-
- if(error){
-   return NextResponse.json(
-    {error:error.message},
-    {status:500}
-   )
- }
-
-
- return NextResponse.json(data);
-
+  return NextResponse.json({ claims: data ?? [] });
 }
