@@ -8,40 +8,19 @@ type CensusRow = {
   gender?: string
 }
 
-function normalize(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[\s\-().]/g, "")
-}
-
 export async function POST(req: Request) {
   try {
     const supabase = await getSupabaseServerClient()
 
     if (!supabase) {
-      return NextResponse.json(
-        {
-          error: "Supabase is not configured.",
-        },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: "Supabase is not configured." }, { status: 500 })
     }
 
     const body = await req.json()
-
-    const rows: CensusRow[] =
-      Array.isArray(body?.rows)
-        ? body.rows
-        : []
+    const rows: CensusRow[] = Array.isArray(body?.rows) ? body.rows : []
 
     if (rows.length === 0) {
-      return NextResponse.json(
-        {
-          error: "No census records were provided.",
-        },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: "No census records were provided." }, { status: 400 })
     }
 
     const results = []
@@ -52,141 +31,46 @@ export async function POST(req: Request) {
       const dob = String(row.dob ?? "").trim()
       const gender = String(row.gender ?? "").trim()
 
+      // mcs_claims currently only stores client_name and passport_no.
+      // dob / gender are shown for reference but cannot be matched yet
+      // because the database has no columns for them.
       if (!name && !nrc) {
-        results.push({
-          name,
-          nrc,
-          dob,
-          gender,
-          status: "No history",
-          claims: [],
-        })
-
+        results.push({ name, nrc, dob, gender, status: "No history", claims: [] })
         continue
       }
 
-      /*
-       * Get possible records from mcs_claims.
-       *
-       * Database fields currently available:
-       * client_name
-       * passport_no
-       */
-      let query = supabase
+      const safeName = name.replace(/,/g, "")
+      const safeNrc = nrc.replace(/,/g, "")
+
+      const orParts: string[] = []
+      if (safeName) orParts.push(`client_name.ilike.%${safeName}%`)
+      if (safeNrc) orParts.push(`passport_no.ilike.%${safeNrc}%`)
+
+      const { data, error } = await supabase
         .from("mcs_claims")
         .select("*")
-
-      if (name && nrc) {
-        query = query
-          .ilike("client_name", `%${name}%`)
-          .ilike("passport_no", `%${nrc}%`)
-      } else if (name) {
-        query = query.ilike(
-          "client_name",
-          `%${name}%`
-        )
-      } else {
-        query = query.ilike(
-          "passport_no",
-          `%${nrc}%`
-        )
-      }
-
-      const {
-        data,
-        error,
-      } = await query
+        .or(orParts.join(","))
 
       if (error) {
-        console.error(
-          "Bulk census query error:",
-          error
-        )
-
-        return NextResponse.json(
-          {
-            error: error.message,
-          },
-          { status: 500 }
-        )
+        console.error("Bulk census query error:", error)
+        return NextResponse.json({ error: error.message }, { status: 500 })
       }
 
-      let claims = data ?? []
-
-      /*
-       * If both Name and NRC are supplied,
-       * perform an additional normalized check.
-       *
-       * This makes matching tolerant of:
-       * John Tan
-       * JOHN TAN
-       *  E1234567
-       * E-1234567
-       */
-      if (name && nrc) {
-        const normalizedName =
-          normalize(name)
-
-        const normalizedNrc =
-          normalize(nrc)
-
-        claims = claims.filter(
-          (claim: any) => {
-
-            const dbName =
-              normalize(
-                String(
-                  claim.client_name ?? ""
-                )
-              )
-
-            const dbNrc =
-              normalize(
-                String(
-                  claim.passport_no ?? ""
-                )
-              )
-
-            return (
-              dbName.includes(normalizedName) &&
-              dbNrc.includes(normalizedNrc)
-            )
-          }
-        )
-      }
+      const claims = data ?? []
 
       results.push({
         name,
         nrc,
         dob,
         gender,
-
-        status:
-          claims.length > 0
-            ? "Matched"
-            : "No history",
-
+        status: claims.length > 0 ? "Matched" : "No history",
         claims,
       })
     }
 
-    return NextResponse.json({
-      results,
-    })
-
+    return NextResponse.json({ results })
   } catch (error) {
-
-    console.error(
-      "Bulk census error:",
-      error
-    )
-
-    return NextResponse.json(
-      {
-        error:
-          "Unable to process census records.",
-      },
-      { status: 500 }
-    )
+    console.error("Bulk census error:", error)
+    return NextResponse.json({ error: "Unable to process census records." }, { status: 500 })
   }
 }
