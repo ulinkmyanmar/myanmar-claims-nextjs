@@ -47,6 +47,7 @@ export async function POST(req: Request) {
       if (safeNrc) orParts.push(`passport_no.ilike.%${safeNrc}%`)
 
       const { data, error } = await supabase
+        .schema("MyanmarClaimSystem")
         .from("mcs_claims")
         .select("*")
         .or(orParts.join(","))
