@@ -22,9 +22,7 @@ export async function getSupabaseServerClient() {
     url,
     key,
     {
-      db: {
-        schema: 'MyanmarClaimSystem',
-      },
+     
 
       cookies: {
 
