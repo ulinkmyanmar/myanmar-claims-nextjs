@@ -2,20 +2,60 @@
 
 import { useRef, useState } from "react"
 import * as XLSX from "xlsx"
-import { Download, Upload } from "lucide-react"
+import { Download, Upload, Search, X } from "lucide-react"
+
+type ClaimRecord = {
+  [key: string]: unknown
+}
 
 type CensusRow = {
   name: string
   nrc: string
   dob: string
   gender: string
+  status: "Matched" | "No history" | "Pending"
+  claims: ClaimRecord[]
 }
 
-const TEMPLATE_HEADERS = [
-  "Name",
-  "NRC / National ID",
-  "Date of Birth",
-  "Gender",
+const SAMPLE_ROWS: CensusRow[] = [
+  {
+    name: "Yoon Thadar Htun",
+    nrc: "12/ABC(N)123456",
+    dob: "11-Jul-1918",
+    gender: "Female",
+    status: "Matched",
+    claims: [
+      {
+        id: "HM0000001",
+        claim_no: "SAMPLE-0001",
+        client_name: "Yoon Thadar Htun",
+        passport_no: "12/ABC(N)123456",
+      },
+    ],
+  },
+  {
+    name: "Thiri Mon",
+    nrc: "",
+    dob: "08-Feb-1997",
+    gender: "Female",
+    status: "No history",
+    claims: [],
+  },
+  {
+    name: "Aung Min Khant",
+    nrc: "9/MABANA(N)765432",
+    dob: "22-Mar-1987",
+    gender: "Male",
+    status: "Matched",
+    claims: [
+      {
+        id: "HM0000002",
+        claim_no: "SAMPLE-0002",
+        client_name: "Aung Min Khant",
+        passport_no: "9/MABANA(N)765432",
+      },
+    ],
+  },
 ]
 
 export default function BulkCensusClient() {
@@ -24,6 +64,9 @@ export default function BulkCensusClient() {
   const [rows, setRows] = useState<CensusRow[]>([])
   const [fileName, setFileName] = useState("")
   const [error, setError] = useState("")
+  const [showSample, setShowSample] = useState(false)
+  const [selectedRow, setSelectedRow] = useState<CensusRow | null>(null)
+  const [searching, setSearching] = useState(false)
 
   function downloadTemplate() {
     const data = [
@@ -50,6 +93,14 @@ export default function BulkCensusClient() {
     )
   }
 
+  function loadSampleResult() {
+    setError("")
+    setFileName("")
+    setSelectedRow(null)
+    setShowSample(true)
+    setRows(SAMPLE_ROWS)
+  }
+
   function openFilePicker() {
     fileInputRef.current?.click()
   }
@@ -63,6 +114,8 @@ export default function BulkCensusClient() {
 
     setError("")
     setRows([])
+    setSelectedRow(null)
+    setShowSample(false)
     setFileName(file.name)
 
     try {
@@ -76,7 +129,9 @@ export default function BulkCensusClient() {
       const firstSheetName = workbook.SheetNames[0]
 
       if (!firstSheetName) {
-        setError("The Excel file does not contain a worksheet.")
+        setError(
+          "The Excel file does not contain a worksheet."
+        )
         return
       }
 
@@ -93,26 +148,32 @@ export default function BulkCensusClient() {
         )
 
       if (rawRows.length === 0) {
-        setError("The Excel file does not contain any data.")
+        setError(
+          "The Excel file does not contain any data."
+        )
         return
       }
 
-      const firstRow = rawRows[0]
+      const headers = Object.keys(rawRows[0])
 
-      const headers = Object.keys(firstRow)
-
-      const findHeader = (target: string) => {
-        return headers.find(
+      const findHeader = (target: string) =>
+        headers.find(
           (header) =>
             header.trim().toLowerCase() ===
             target.trim().toLowerCase()
         )
-      }
 
-      const nameHeader = findHeader("Name")
-      const nrcHeader = findHeader("NRC / National ID")
-      const dobHeader = findHeader("Date of Birth")
-      const genderHeader = findHeader("Gender")
+      const nameHeader =
+        findHeader("Name")
+
+      const nrcHeader =
+        findHeader("NRC / National ID")
+
+      const dobHeader =
+        findHeader("Date of Birth")
+
+      const genderHeader =
+        findHeader("Gender")
 
       const missingHeaders: string[] = []
 
@@ -121,11 +182,15 @@ export default function BulkCensusClient() {
       }
 
       if (!nrcHeader) {
-        missingHeaders.push("NRC / National ID")
+        missingHeaders.push(
+          "NRC / National ID"
+        )
       }
 
       if (!dobHeader) {
-        missingHeaders.push("Date of Birth")
+        missingHeaders.push(
+          "Date of Birth"
+        )
       }
 
       if (!genderHeader) {
@@ -139,142 +204,77 @@ export default function BulkCensusClient() {
         return
       }
 
-      const parsedRows: CensusRow[] = rawRows.map((row) => ({
-        name: String(row[nameHeader!] ?? "").trim(),
-        nrc: String(row[nrcHeader!] ?? "").trim(),
-        dob: String(row[dobHeader!] ?? "").trim(),
-        gender: String(row[genderHeader!] ?? "").trim(),
-      }))
+      const parsedRows: CensusRow[] =
+        rawRows.map((row) => ({
+          name: String(
+            row[nameHeader!] ?? ""
+          ).trim(),
+
+          nrc: String(
+            row[nrcHeader!] ?? ""
+          ).trim(),
+
+          dob: String(
+            row[dobHeader!] ?? ""
+          ).trim(),
+
+          gender: String(
+            row[genderHeader!] ?? ""
+          ).trim(),
+
+          status: "Pending",
+
+          claims: [],
+        }))
 
       setRows(parsedRows)
+
+      /*
+       * Send the uploaded members to the server
+       * for matching against mcs_claims.
+       */
+      setSearching(true)
+
+      const response = await fetch(
+        "/api/bulk-census",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            rows: parsedRows.map(
+              ({
+                name,
+                nrc,
+                dob,
+                gender,
+              }) => ({
+                name,
+                nrc,
+                dob,
+                gender,
+              })
+            ),
+          }),
+        }
+      )
+
+      const result =
+        await response.json()
+
+      if (!response.ok) {
+        setError(
+          result.error ??
+            "Unable to check census records."
+        )
+        return
+      }
+
+      setRows(result.results ?? [])
     } catch (err) {
       console.error(err)
 
       setError(
-        "Unable to read this file. Please upload a valid Excel or CSV file."
-      )
-    }
-
-    event.target.value = ""
-  }
-
-  return (
-    <div className="mt-6">
-
-      <div className="flex flex-wrap gap-3">
-
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={downloadTemplate}
-        >
-          <Download size={18} />
-          Download Standardized Template
-        </button>
-
-        <button
-          type="button"
-          className="btn"
-          onClick={openFilePicker}
-        >
-          <Upload size={18} />
-          Upload Excel File
-        </button>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".xlsx,.xls,.csv"
-          className="hidden"
-          onChange={handleFileChange}
-        />
-
-      </div>
-
-
-      {fileName && (
-        <div className="mt-4 rounded-xl border border-line bg-blue-50 p-4">
-          <p className="font-semibold">
-            Uploaded file
-          </p>
-
-          <p className="text-muted">
-            {fileName}
-          </p>
-
-          <p className="mt-1 text-sm text-muted">
-            {rows.length} member(s) loaded
-          </p>
-        </div>
-      )}
-
-
-      {error && (
-        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
-          {error}
-        </div>
-      )}
-
-
-      {rows.length > 0 && (
-        <div className="mt-6 overflow-x-auto">
-
-          <table className="w-full">
-
-            <thead>
-              <tr>
-                <th>Uploaded Member</th>
-                <th>NRC / National ID</th>
-                <th>DOB</th>
-                <th>Gender</th>
-                <th>Status</th>
-                <th>Historical Member ID</th>
-              </tr>
-            </thead>
-
-            <tbody>
-
-              {rows.map((row, index) => (
-
-                <tr key={index}>
-
-                  <td>
-                    {row.name || "—"}
-                  </td>
-
-                  <td>
-                    {row.nrc || "—"}
-                  </td>
-
-                  <td>
-                    {row.dob || "—"}
-                  </td>
-
-                  <td>
-                    {row.gender || "—"}
-                  </td>
-
-                  <td>
-                    <span className="pill pill-gray">
-                      Pending
-                    </span>
-                  </td>
-
-                  <td>
-                    —
-                  </td>
-
-                </tr>
-
-              ))}
-
-            </tbody>
-
-          </table>
-
-        </div>
-      )}
-
-    </div>
-  )
-}
+        "Unable to read this file. Please upload a
