@@ -32,10 +32,13 @@ export default function DatabaseManagementClient() {
     useState('')
 
   const [validated, setValidated] =
-    useState(false)
+  useState(false)
+
+  const [preview, setPreview] =
+  useState(false)
 
   const [message, setMessage] =
-    useState('')
+  useState('')
 
 
   function chooseFile() {
@@ -64,6 +67,7 @@ export default function DatabaseManagementClient() {
     setVersion('')
     setCoverageDate('')
     setValidated(false)
+    setPreview(false)
     setMessage('')
 
     if (fileInputRef.current) {
@@ -96,6 +100,8 @@ export default function DatabaseManagementClient() {
     }
 
     setValidated(true)
+
+    setPreview(true)
 
     setMessage(
       'Validation preview completed. No live database changes have been made.'
@@ -436,6 +442,95 @@ export default function DatabaseManagementClient() {
 
       </div>
 
+{/* Synchronization preview */}
+
+{preview && (
+
+<div className="card">
+
+  <div className="flex items-center justify-between">
+
+    <div>
+      <h2 className="text-2xl font-bold">
+        Synchronization preview
+      </h2>
+
+      <p className="mt-2 text-muted">
+        Simulated staging comparison for the clickable prototype.
+      </p>
+    </div>
+
+
+    <span className="pill pill-green">
+      Ready for confirmation
+    </span>
+
+  </div>
+
+
+  <div className="mt-6 rounded-2xl border border-line bg-stone-50 p-5">
+
+    <p className="text-sm text-muted">
+      FILE
+    </p>
+
+    <p className="font-bold">
+      {fileName}
+    </p>
+
+  </div>
+
+
+  <div className="mt-5 grid gap-4 md:grid-cols-5">
+
+    <PreviewCard
+      label="Existing records"
+      value="5 claims"
+    />
+
+    <PreviewCard
+      label="New claims"
+      value="+2"
+    />
+
+    <PreviewCard
+      label="Updated records"
+      value="1"
+    />
+
+    <PreviewCard
+      label="Unchanged records"
+      value="4"
+    />
+
+    <PreviewCard
+      label="Duplicates blocked"
+      value="0"
+    />
+
+  </div>
+
+
+  <div className="mt-5 rounded-2xl border border-green-200 bg-green-50 p-5">
+
+    <p className="text-green-900">
+
+      <strong>
+        Controlled sync:
+      </strong>
+
+      The active database changes only after confirmation.
+      The previous snapshot is archived so the administrator
+      can roll back if the new import is incomplete or incorrect.
+
+    </p>
+
+  </div>
+
+
+</div>
+
+)}
 
       {/* Validation checklist */}
 
@@ -655,4 +750,30 @@ function CheckItem({
     </div>
 
   )
+}
+
+function PreviewCard({
+  label,
+  value,
+}: {
+  label:string
+  value:string
+}) {
+
+  return (
+
+    <div className="rounded-2xl border border-line bg-white p-5">
+
+      <p className="text-sm uppercase text-muted">
+        {label}
+      </p>
+
+      <p className="mt-2 text-xl font-bold">
+        {value}
+      </p>
+
+    </div>
+
+  )
+
 }
