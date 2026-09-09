@@ -277,4 +277,478 @@ export default function BulkCensusClient() {
       console.error(err)
 
       setError(
-        "Unable to read this file. Please upload a
+        "Unable to read this file. Please upload a valid Excel file."
+      )
+    } finally {
+      setSearching(false)
+      event.target.value = ""
+    }
+  }
+
+  return (
+    <div className="mt-6">
+
+      {/* Upload / Download */}
+      <div className="flex flex-wrap gap-3">
+
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={downloadTemplate}
+        >
+          <Download size={18} />
+          Download Standardized Template
+        </button>
+
+        <button
+          type="button"
+          className="btn"
+          onClick={openFilePicker}
+        >
+          <Upload size={18} />
+          Upload Excel File
+        </button>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+
+      </div>
+
+
+      {/* Sample result */}
+      <div className="mt-8 rounded-3xl border border-line bg-white p-6">
+
+        <div className="flex flex-wrap items-center justify-between gap-4">
+
+          <div>
+            <h2 className="text-xl font-bold">
+              Sample bulk result
+            </h2>
+
+            <p className="mt-2 text-muted">
+              Click any member row to view census details and available historical claims.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={loadSampleResult}
+          >
+            Load sample result
+          </button>
+
+        </div>
+
+
+        {showSample && (
+          <div className="mt-6 overflow-x-auto">
+
+            <table className="w-full">
+
+              <thead>
+                <tr>
+                  <th>Uploaded Member</th>
+                  <th>NRC / National ID</th>
+                  <th>Date of Birth</th>
+                  <th>Gender</th>
+                  <th>Match Status</th>
+                  <th>Claim No</th>
+                </tr>
+              </thead>
+
+              <tbody>
+
+                {SAMPLE_ROWS.map(
+                  (row, index) => {
+
+                    const firstClaim =
+                      row.claims[0]
+
+                    return (
+                      <tr
+                        key={index}
+                        className="cursor-pointer hover:bg-blue-50"
+                        onClick={() =>
+                          setSelectedRow(row)
+                        }
+                      >
+
+                        <td>
+                          <div className="font-semibold">
+                            {row.name}
+                          </div>
+
+                          <button
+                            type="button"
+                            className="mt-1 text-sm font-semibold text-brand"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setSelectedRow(row)
+                            }}
+                          >
+                            View details
+                          </button>
+                        </td>
+
+                        <td>
+                          {row.nrc || "—"}
+                        </td>
+
+                        <td>
+                          {row.dob || "—"}
+                        </td>
+
+                        <td>
+                          {row.gender || "—"}
+                        </td>
+
+                        <td>
+                          <span
+                            className={
+                              row.status === "Matched"
+                                ? "pill pill-green"
+                                : "pill pill-gray"
+                            }
+                          >
+                            {row.status}
+                          </span>
+                        </td>
+
+                        <td>
+                          {typeof firstClaim?.claim_no === "string"
+                            ? firstClaim.claim_no
+                            : "—"}
+                        </td>
+
+                      </tr>
+                    )
+                  }
+                )}
+
+              </tbody>
+
+            </table>
+
+          </div>
+        )}
+
+      </div>
+
+
+      {/* Uploaded file information */}
+      {fileName && (
+        <div className="mt-6 rounded-xl border border-line bg-blue-50 p-4">
+
+          <p className="font-semibold">
+            Uploaded file
+          </p>
+
+          <p className="text-muted">
+            {fileName}
+          </p>
+
+          <p className="mt-1 text-sm text-muted">
+            {rows.length} member(s) loaded
+          </p>
+
+          {searching && (
+            <p className="mt-2 text-sm font-semibold text-brand">
+              Checking historical claims...
+            </p>
+          )}
+
+        </div>
+      )}
+
+
+      {/* Error */}
+      {error && (
+        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
+          {error}
+        </div>
+      )}
+
+
+      {/* Real uploaded result */}
+      {rows.length > 0 && !showSample && (
+        <div className="mt-6">
+
+          <h2 className="mb-3 text-xl font-bold">
+            Bulk Result
+          </h2>
+
+          <div className="overflow-x-auto">
+
+            <table className="w-full">
+
+              <thead>
+                <tr>
+                  <th>Uploaded Member</th>
+                  <th>NRC / National ID</th>
+                  <th>DOB</th>
+                  <th>Gender</th>
+                  <th>Match Status</th>
+                  <th>Claim No</th>
+                  <th>Claims</th>
+                </tr>
+              </thead>
+
+              <tbody>
+
+                {rows.map(
+                  (row, index) => {
+
+                    const firstClaim =
+                      row.claims?.[0]
+
+                    const claimNo =
+                      firstClaim &&
+                      typeof firstClaim.claim_no === "string"
+                        ? firstClaim.claim_no
+                        : "—"
+
+                    return (
+                      <tr
+                        key={index}
+                        className="cursor-pointer hover:bg-blue-50"
+                        onClick={() =>
+                          setSelectedRow(row)
+                        }
+                      >
+
+                        <td>
+                          <div className="font-semibold">
+                            {row.name || "—"}
+                          </div>
+
+                          <button
+                            type="button"
+                            className="mt-1 text-sm font-semibold text-brand"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setSelectedRow(row)
+                            }}
+                          >
+                            View details
+                          </button>
+                        </td>
+
+                        <td>
+                          {row.nrc || "—"}
+                        </td>
+
+                        <td>
+                          {row.dob || "—"}
+                        </td>
+
+                        <td>
+                          {row.gender || "—"}
+                        </td>
+
+                        <td>
+                          <span
+                            className={
+                              row.status === "Matched"
+                                ? "pill pill-green"
+                                : "pill pill-gray"
+                            }
+                          >
+                            {row.status}
+                          </span>
+                        </td>
+
+                        <td>
+                          {claimNo}
+                        </td>
+
+                        <td>
+                          {row.claims?.length ?? 0}
+                        </td>
+
+                      </tr>
+                    )
+                  }
+                )}
+
+              </tbody>
+
+            </table>
+
+          </div>
+
+        </div>
+      )}
+
+
+      {/* Details panel */}
+      {selectedRow && (
+        <div className="mt-6 rounded-3xl border border-line bg-white p-6">
+
+          <div className="flex items-center justify-between">
+
+            <h2 className="text-xl font-bold">
+              Member Details
+            </h2>
+
+            <button
+              type="button"
+              className="rounded-full p-2 hover:bg-gray-100"
+              onClick={() =>
+                setSelectedRow(null)
+              }
+            >
+              <X size={20} />
+            </button>
+
+          </div>
+
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+
+            <div>
+              <p className="text-sm text-muted">
+                Uploaded Member
+              </p>
+
+              <p className="font-semibold">
+                {selectedRow.name || "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-sm text-muted">
+                NRC / National ID
+              </p>
+
+              <p className="font-semibold">
+                {selectedRow.nrc || "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-sm text-muted">
+                Date of Birth
+              </p>
+
+              <p className="font-semibold">
+                {selectedRow.dob || "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-sm text-muted">
+                Gender
+              </p>
+
+              <p className="font-semibold">
+                {selectedRow.gender || "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-sm text-muted">
+                Match Status
+              </p>
+
+              <span
+                className={
+                  selectedRow.status === "Matched"
+                    ? "pill pill-green"
+                    : "pill pill-gray"
+                }
+              >
+                {selectedRow.status}
+              </span>
+            </div>
+
+          </div>
+
+
+          {/* Matching claims */}
+          <div className="mt-8">
+
+            <h3 className="text-lg font-bold">
+              Historical Claims
+            </h3>
+
+            {selectedRow.claims?.length === 0 ? (
+
+              <div className="mt-3 rounded-xl border border-line bg-stone-50 p-4 text-muted">
+                No historical claims found.
+              </div>
+
+            ) : (
+
+              <div className="mt-3 grid gap-4">
+
+                {selectedRow.claims.map(
+                  (claim, index) => (
+
+                    <div
+                      key={index}
+                      className="rounded-xl border border-line bg-stone-50 p-4"
+                    >
+
+                      <div className="mb-3 flex items-center gap-2">
+
+                        <Search size={18} />
+
+                        <b>
+                          Claim Record {index + 1}
+                        </b>
+
+                      </div>
+
+
+                      <div className="grid gap-3 md:grid-cols-2">
+
+                        {Object.entries(
+                          claim
+                        ).map(
+                          ([key, value]) => (
+
+                            <div key={key}>
+
+                              <p className="text-xs uppercase text-muted">
+                                {key.replaceAll(
+                                  "_",
+                                  " "
+                                )}
+                              </p>
+
+                              <p className="font-semibold">
+                                {String(
+                                  value ?? "—"
+                                )}
+                              </p>
+
+                            </div>
+
+                          )
+                        )}
+
+                      </div>
+
+                    </div>
+
+                  )
+                )}
+
+              </div>
+
+            )}
+
+          </div>
+
+        </div>
+      )}
+
+    </div>
+  )
+}
