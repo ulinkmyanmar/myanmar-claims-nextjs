@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 
+// 1. 增加 GET 方法，方便直接在浏览器访问测试路由是否存在
+export async function GET() {
+  return NextResponse.json({ message: "Confirm API route is working!" });
+}
+
+// 2. 确认同步处理逻辑 (适配 Excel 到 Supabase 的 Mapping)
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -18,9 +24,10 @@ export async function POST(req: Request) {
     let insertedCount = 0;
 
     if (Array.isArray(records) && records.length > 0) {
-      // 对上传的 Excel 字段与 Supabase 字段进行准确 Mapping
+      // Mapping: 将前端 Excel 的字段转化为 Supabase 表 (mcs_claims) 的字段
       const rowsToInsert = records.map((row: any, idx: number) => {
-        // 生成或提取 claim_no
+        // 优先获取表格中的 Historical Member ID，若无则生成备用 ID
+        const memberId = row.memberId || row["Historical Member ID"] || `HM-${Date.now()}-${idx}`;
         const claimNo = row.claimNo || row["Claim No"] || `CLM-${Date.now()}-${idx}`;
         const clientName = row.clientName || row["Preferred Full Name"] || row["Client Name"] || "Unknown";
 
@@ -38,7 +45,7 @@ export async function POST(req: Request) {
         };
       });
 
-      // 写入 Supabase 的 mcs_claims 表
+      // 执行写入操作
       const { error: insertError } = await supabase
         .schema("MyanmarClaimSystem")
         .from("mcs_claims")
