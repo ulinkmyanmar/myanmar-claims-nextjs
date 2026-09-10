@@ -126,7 +126,7 @@ export default function DatabaseManagementClient() {
     }
   }
 
-  // 2. 确认同步并提交到系统存储/数据库
+  // 确认同步并提交到系统存储/数据库 (带数据格式清洗)
   async function confirmSync() {
     if (!validated || !syncResult) {
       setMessage('Please validate and preview the snapshot before activating it.')
@@ -141,6 +141,18 @@ export default function DatabaseManagementClient() {
     try {
       setMessage('Synchronizing data to live database...')
 
+      // 1. 数据安全清洗：将 Excel 解析出的复杂对象转换为纯净的标准 JSON 对象
+      const safeRecords = (syncResult.parsedRecords || []).map((row: any) => {
+        return {
+          memberId: String(row["Historical Member ID"] || row["Member ID"] || row["ID"] || "").trim(),
+          clientName: String(row["Preferred Full Name"] || row["Client Name"] || row["Name"] || "").trim(),
+          dateOfBirth: row["Date of Birth"] ? String(row["Date of Birth"]).trim() : null,
+          gender: row["Gender"] ? String(row["Gender"]).trim() : null,
+          claimNo: row["Claim No"] ? String(row["Claim No"]).trim() : "",
+        }
+      })
+
+      // 2. 安全发起 POST 请求
       const response = await fetch('/api/database-sync/confirm', {
         method: 'POST',
         headers: {
@@ -149,11 +161,21 @@ export default function DatabaseManagementClient() {
         body: JSON.stringify({
           version: version.trim(),
           coverageDate,
-          records: syncResult.parsedRecords || [],
+          records: safeRecords, // 传递清洗后的标准 JSON 数据
         }),
       })
 
-      const resData = await response.json()
+      // 3. 避免 response.json() 在 HTML 报错时抛出 Unexpected token '<'
+      const responseText = await response.text()
+      let resData: any = {}
+      
+      try {
+        resData = JSON.parse(responseText)
+      } catch (e) {
+        console.error('Non-JSON response from server:', responseText)
+        setMessage(`Server returned non-JSON error (Status ${response.status}). Please check server logs.`)
+        return
+      }
 
       if (!response.ok) {
         setMessage(resData.error || 'Failed to sync database.')
