@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Upload,
   CheckCircle2,
@@ -46,6 +46,37 @@ export default function DatabaseManagementClient() {
     },
   ])
 
+  // 1. 组件挂载时自动从数据库拉取持久化的历史记录
+  useEffect(() => {
+    async function fetchHistory() {
+      try {
+        const res = await fetch('/api/database-sync/history')
+        const data = await res.json()
+        if (data.history && data.history.length > 0) {
+          const formattedHistory = data.history.map((item: any) => ({
+            version: item.version || 'New Snapshot',
+            coverageDate: item.coverage_date || item.coverageDate || '-',
+            status: (item.status || 'Active') as "Active" | "Archived",
+            method: item.method || 'Controlled sync / upsert',
+            updatedBy: item.updated_by || item.updatedBy || 'Admin Myanmar',
+            updatedOn: item.createddatetime
+              ? new Date(item.createddatetime).toLocaleDateString('en-GB', {
+                  day: '2-digit',
+                  month: 'short',
+                  year: 'numeric',
+                }).replace(/ /g, '-')
+              : 'Recently',
+          }))
+          setSyncHistory(formattedHistory)
+        }
+      } catch (e) {
+        console.error('Failed to fetch sync history from database', e)
+      }
+    }
+
+    fetchHistory()
+  }, [])
+
   function chooseFile() {
     fileInputRef.current?.click()
   }
@@ -75,7 +106,7 @@ export default function DatabaseManagementClient() {
     }
   }
 
-  // 1. 验证并解析 Excel 文件
+  // 2. 验证并解析 Excel 文件
   async function validatePreview() {
     if (!fileName || !fileInputRef.current?.files?.[0]) {
       setMessage('Please select a claims snapshot file first.')
@@ -105,7 +136,17 @@ export default function DatabaseManagementClient() {
         body: formData,
       })
 
-      const result = await response.json()
+      const responseText = await response.text()
+      let result: any = {}
+
+      try {
+        result = JSON.parse(responseText)
+      } catch (err) {
+        setMessage(`Server returned non-JSON response (Status ${response.status}).`)
+        setValidated(false)
+        setPreview(false)
+        return
+      }
 
       if (!response.ok) {
         setMessage(result.error || 'Failed to parse preview data.')
@@ -126,7 +167,7 @@ export default function DatabaseManagementClient() {
     }
   }
 
-  // 确认同步并提交到系统存储/数据库 (带数据格式清洗)
+  // 3. 确认同步并提交到系统存储/数据库
   async function confirmSync() {
     if (!validated || !syncResult) {
       setMessage('Please validate and preview the snapshot before activating it.')
@@ -141,7 +182,7 @@ export default function DatabaseManagementClient() {
     try {
       setMessage('Synchronizing data to live database...')
 
-      // 1. 数据安全清洗：将 Excel 解析出的复杂对象转换为纯净的标准 JSON 对象
+      // 数据清洗与字段 Mapping，避免包含空格的复杂 key 破坏服务端 JSON 格式
       const safeRecords = (syncResult.parsedRecords || []).map((row: any) => {
         return {
           memberId: String(row["Historical Member ID"] || row["Member ID"] || row["ID"] || "").trim(),
@@ -152,7 +193,6 @@ export default function DatabaseManagementClient() {
         }
       })
 
-      // 2. 安全发起 POST 请求
       const response = await fetch('/api/database-sync/confirm', {
         method: 'POST',
         headers: {
@@ -161,14 +201,13 @@ export default function DatabaseManagementClient() {
         body: JSON.stringify({
           version: version.trim(),
           coverageDate,
-          records: safeRecords, // 传递清洗后的标准 JSON 数据
+          records: safeRecords,
         }),
       })
 
-      // 3. 避免 response.json() 在 HTML 报错时抛出 Unexpected token '<'
       const responseText = await response.text()
       let resData: any = {}
-      
+
       try {
         resData = JSON.parse(responseText)
       } catch (e) {
@@ -199,6 +238,7 @@ export default function DatabaseManagementClient() {
         })
         .replace(/ /g, '-')
 
+      // 同步更新前端历史列表显示
       setSyncHistory((previous) => {
         const archived = previous.map((item) => ({
           ...item,
@@ -221,7 +261,7 @@ export default function DatabaseManagementClient() {
       setValidated(false)
       setPreview(false)
       setMessage(
-        `Synchronization confirmed! Database has been updated with ${syncResult.newRecords ?? 0} new records.`
+        `Synchronization confirmed! Database has been updated with ${syncResult.newRecords ?? safeRecords.length} new records.`
       )
     } catch (err: any) {
       console.error(err)
@@ -387,12 +427,14 @@ export default function DatabaseManagementClient() {
         {message && (
           <div
             className={
-              validated
+              message.toLowerCase().includes('success') || message.toLowerCase().includes('completed')
                 ? 'mt-5 rounded-xl border border-green-200 bg-green-50 p-4 text-green-800'
-                : 'mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-800'
+                : 'mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800'
             }
           >
-            {validated ? <CheckCircle2 className="mr-2 inline" size={18} /> : null}
+            {message.toLowerCase().includes('success') || message.toLowerCase().includes('completed') ? (
+              <CheckCircle2 className="mr-2 inline" size={18} />
+            ) : null}
             {message}
           </div>
         )}
