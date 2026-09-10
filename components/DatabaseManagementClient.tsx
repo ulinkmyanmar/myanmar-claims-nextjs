@@ -100,181 +100,139 @@ const [syncHistory, setSyncHistory] =
   }
 
 
-  function validatePreview() {
+  
 
-    if (!fileName) {
-      setMessage(
-        'Please select a claims snapshot file first.'
-      )
-      return
-    }
-
-    if (!version.trim()) {
-      setMessage(
-        'Please enter the new snapshot version.'
-      )
-      return
-    }
-
-    if (!coverageDate) {
-      setMessage(
-        'Please enter the claims coverage date.'
-      )
-      return
-    }
-
-    setValidated(true)
-
-    async function validatePreview(){
-
-if(!fileInputRef.current?.files?.[0]){
-
-setMessage(
-"Please select a file first"
-)
-
-return;
-
-}
-
-
-const file =
-fileInputRef.current.files[0];
-
-
-
-const formData =
-new FormData();
-
-
-formData.append(
-"file",
-file
-);
-
-
-
-const response =
-await fetch(
-"/api/database-sync/preview",
-{
-method:"POST",
-body:formData
-}
-);
-
-
-
-const result =
-await response.json();
-
-
-
-if(!response.ok){
-
-setMessage(
-result.error
-)
-
-return;
-
-}
-
-
-
-setSyncResult(result);
-
-
-setValidated(true);
-
-setPreview(true);
-
-
-setMessage(
-"Validation completed successfully"
-);
-
-
-}
-
-    setMessage(
-      'Validation preview completed. No live database changes have been made.'
-    )
+// 
+async function validatePreview() {
+  if (!fileName || !fileInputRef.current?.files?.[0]) {
+    setMessage('Please select a claims snapshot file first.')
+    return
   }
 
+  if (!version.trim()) {
+    setMessage('Please enter the new snapshot version.')
+    return
+  }
 
-  function confirmSync() {
+  if (!coverageDate) {
+    setMessage('Please enter the claims coverage date.')
+    return
+  }
 
-  if (!validated) {
-    setMessage(
-      'Please validate and preview the snapshot before activating it.'
-    )
+  try {
+    setMessage('Parsing and validating Excel file...')
+    const file = fileInputRef.current.files[0]
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('version', version)
+    formData.append('coverageDate', coverageDate)
+
+    const response = await fetch('/api/database-sync/preview', {
+      method: 'POST',
+      body: formData,
+    })
+
+    const result = await response.json()
+
+    if (!response.ok) {
+      setMessage(result.error || 'Failed to parse preview data.')
+      setValidated(false)
+      setPreview(false)
+      return
+    }
+
+    setSyncResult(result)
+    setValidated(true)
+    setPreview(true)
+    setMessage('Validation preview completed successfully. Ready for confirmation.')
+  } catch (err: any) {
+    console.error(err)
+    setMessage(err.message || 'An error occurred during file parsing.')
+    setValidated(false)
+    setPreview(false)
+  }
+}
+
+// 
+async function confirmSync() {
+  if (!validated || !syncResult) {
+    setMessage('Please validate and preview the snapshot before activating it.')
     return
   }
 
   if (!version.trim() || !coverageDate) {
-    setMessage(
-      'Snapshot version and coverage date are required.'
-    )
+    setMessage('Snapshot version and coverage date are required.')
     return
   }
 
-  const formattedCoverageDate =
-    new Date(
-      `${coverageDate}T00:00:00`
-    )
-      .toLocaleDateString(
-        'en-GB',
-        {
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-        }
-      )
+  try {
+    setMessage('Synchronizing data to live database...')
+    
+    // 
+    const response = await fetch('/api/database-sync/confirm', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        version: version.trim(),
+        coverageDate,
+        records: syncResult.parsedRecords || [], // 传递解析出的新记录
+      }),
+    })
+
+    const resData = await response.json()
+
+    if (!response.ok) {
+      setMessage(resData.error || 'Failed to sync database.')
+      return
+    }
+
+    // 更新本地前端历史记录展示
+    const formattedCoverageDate = new Date(`${coverageDate}T00:00:00`)
+      .toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      })
       .replace(/ /g, '-')
 
-  const updatedOn =
-    new Date()
-      .toLocaleDateString(
-        'en-GB',
-        {
-          timeZone: 'Asia/Singapore',
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-        }
-      )
+    const updatedOn = new Date()
+      .toLocaleDateString('en-GB', {
+        timeZone: 'Asia/Singapore',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      })
       .replace(/ /g, '-')
 
-
-  setSyncHistory(previous => {
-
-    const archived =
-      previous.map(item => ({
+    setSyncHistory((previous) => {
+      const archived = previous.map((item) => ({
         ...item,
-
-        status:
-          item.status === "Active"
-            ? "Archived" as const
-            : item.status,
+        status: item.status === 'Active' ? ('Archived' as const) : item.status,
       }))
 
-    return [
-      {
-        version: version.trim(),
-        coverageDate:
-          formattedCoverageDate,
-        status: "Active",
-        method:
-          "Controlled sync / upsert",
-        updatedBy:
-          "Admin Myanmar",
-        updatedOn,
-      },
+      return [
+        {
+          version: version.trim(),
+          coverageDate: formattedCoverageDate,
+          status: 'Active',
+          method: 'Controlled sync / upsert',
+          updatedBy: 'Admin Myanmar',
+          updatedOn,
+        },
+        ...archived,
+      ]
+    })
 
-      ...archived,
-    ]
-  })
+    setValidated(false)
+    setPreview(false)
+    setMessage(`Synchronization confirmed! Added ${syncResult.newRecords || 0} new records. System updated successfully.`)
+  } catch (err: any) {
+    console.error(err)
+    setMessage(err.message || 'Failed to sync database.')
+  }
+}
 
 
   setValidated(false)
