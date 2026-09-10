@@ -44,8 +44,8 @@ export async function POST(req: Request) {
       insertedCount = rowsToInsert.length;
     }
 
-    // 2. 将同步记录持久化保存到 mcs_database_sync_history 表
-    await supabase
+    // 2. 将同步记录持久化保存到 mcs_database_sync_history 表（修复了 .catch 报错）
+    const { error: historyError } = await supabase
       .schema("MyanmarClaimSystem")
       .from("mcs_database_sync_history")
       .insert({
@@ -55,8 +55,11 @@ export async function POST(req: Request) {
         method: "Controlled sync / upsert",
         updated_by: "Admin Myanmar",
         createddatetime: new Date().toISOString()
-      })
-      .catch(() => {}); // 容错忽略
+      });
+
+    if (historyError) {
+      console.warn("Failed to write sync history record:", historyError.message);
+    }
 
     return NextResponse.json({
       success: true,
