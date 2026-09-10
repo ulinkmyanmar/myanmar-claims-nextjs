@@ -41,6 +41,10 @@ body {
   @apply text-sm font-semibold text-ink;
 }
 
+.error {
+  @apply text-sm font-semibold text-red-600;
+}
+
 .pill {
   @apply inline-flex rounded-full px-3 py-1 text-xs font-bold;
 }
