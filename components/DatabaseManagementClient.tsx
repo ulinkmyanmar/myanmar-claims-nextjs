@@ -39,6 +39,8 @@ export default function DatabaseManagementClient() {
 
   const [message, setMessage] =
   useState('')
+  const [syncResult,setSyncResult] =
+  useState<any>(null)
 
   type SyncHistoryItem = {
   version: string
@@ -77,6 +79,7 @@ const [syncHistory, setSyncHistory] =
     if (!file) return
 
     setFileName(file.name)
+    setSyncResult(null)
     setValidated(false)
     setMessage('')
   }
@@ -122,7 +125,77 @@ const [syncHistory, setSyncHistory] =
 
     setValidated(true)
 
-    setPreview(true)
+    async function validatePreview(){
+
+if(!fileInputRef.current?.files?.[0]){
+
+setMessage(
+"Please select a file first"
+)
+
+return;
+
+}
+
+
+const file =
+fileInputRef.current.files[0];
+
+
+
+const formData =
+new FormData();
+
+
+formData.append(
+"file",
+file
+);
+
+
+
+const response =
+await fetch(
+"/api/database-sync/preview",
+{
+method:"POST",
+body:formData
+}
+);
+
+
+
+const result =
+await response.json();
+
+
+
+if(!response.ok){
+
+setMessage(
+result.error
+)
+
+return;
+
+}
+
+
+
+setSyncResult(result);
+
+
+setValidated(true);
+
+setPreview(true);
+
+
+setMessage(
+"Validation completed successfully"
+);
+
+
+}
 
     setMessage(
       'Validation preview completed. No live database changes have been made.'
@@ -572,30 +645,34 @@ const [syncHistory, setSyncHistory] =
 
   <div className="mt-5 grid gap-4 md:grid-cols-5">
 
-    <PreviewCard
-      label="Existing records"
-      value="5 claims"
-    />
+  <PreviewCard
+  label="Existing records"
+  value={`${syncResult?.existingRecords ?? 0} claims`}
+  />
 
-    <PreviewCard
-      label="New claims"
-      value="+2"
-    />
 
-    <PreviewCard
-      label="Updated records"
-      value="1"
-    />
+  <PreviewCard
+  label="New claims"
+  value={`+${syncResult?.newRecords ?? 0}`}
+  />
 
-    <PreviewCard
-      label="Unchanged records"
-      value="4"
-    />
 
-    <PreviewCard
-      label="Duplicates blocked"
-      value="0"
-    />
+  <PreviewCard
+  label="Updated records"
+  value={`${syncResult?.updatedRecords ?? 0}`}
+  />
+
+
+  <PreviewCard
+  label="Unchanged records"
+  value={`${syncResult?.unchangedRecords ?? 0}`}
+  />
+
+
+  <PreviewCard
+  label="Duplicates blocked"
+  value={`${syncResult?.duplicates ?? 0}`}
+  />
 
   </div>
 
