@@ -1,44 +1,50 @@
-"use client"
-
-import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Search, Database, Users, FileText } from 'lucide-react'
 
 import AppShell from '@/components/AppShell'
 import { COVERAGE_DATE, CURRENT_VERSION } from '@/lib/constants'
+import { createClient } from '@supabase/supabase-js'
 
-export default function Dashboard() {
-  // 状态：保存从 Supabase 实时拉取的统计数据
-  const [stats, setStats] = useState({
-    totalClaims: 0,
-    latestVersion: CURRENT_VERSION,
-    coverageDate: COVERAGE_DATE,
-    loading: true,
-  })
+// 服务端直接查询 Supabase 数据
+async function getDashboardStats() {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+    const supabase = createClient(supabaseUrl, supabaseKey)
 
-  // 组件挂载时拉取 Supabase 实时数据
-  useEffect(() => {
-    async function fetchStats() {
-      try {
-        const res = await fetch('/api/dashboard/stats')
-        const data = await res.json()
+    // 1. 查询理赔总数
+    const { count: claimsCount } = await supabase
+      .schema('MyanmarClaimSystem')
+      .from('mcs_claims')
+      .select('*', { count: 'exact', head: true })
 
-        if (res.ok && data) {
-          setStats({
-            totalClaims: data.totalClaims ?? 0,
-            latestVersion: data.latestVersion || CURRENT_VERSION,
-            coverageDate: data.coverageDate || COVERAGE_DATE,
-            loading: false,
-          })
-        }
-      } catch (error) {
-        console.error('Failed to load dashboard stats:', error)
-        setStats((prev) => ({ ...prev, loading: false }))
-      }
+    // 2. 查询最新同步历史
+    const { data: latestSync } = await supabase
+      .schema('MyanmarClaimSystem')
+      .from('mcs_database_sync_history')
+      .select('*')
+      .order('createddatetime', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    return {
+      totalClaims: claimsCount ?? 0,
+      latestVersion: latestSync?.version || CURRENT_VERSION,
+      coverageDate: latestSync?.coverage_date || COVERAGE_DATE,
     }
+  } catch (error) {
+    console.error('Failed to fetch dashboard stats:', error)
+    return {
+      totalClaims: 0,
+      latestVersion: CURRENT_VERSION,
+      coverageDate: COVERAGE_DATE,
+    }
+  }
+}
 
-    fetchStats()
-  }, [])
+export default async function Dashboard() {
+  // 服务端直接异步获取统计数据
+  const stats = await getDashboardStats()
 
   return (
     <AppShell>
@@ -122,7 +128,7 @@ export default function Dashboard() {
                 </p>
 
                 <p className="mt-2 text-xl font-bold">
-                  {stats.loading ? 'Loading...' : stats.latestVersion}
+                  {stats.latestVersion}
                 </p>
               </div>
 
@@ -136,7 +142,7 @@ export default function Dashboard() {
             </p>
           </div>
 
-          {/* Active Claims Records (Real database count) */}
+          {/* Active Claims Records */}
           <div className="card">
             <div className="flex items-start justify-between">
               <div>
@@ -145,7 +151,7 @@ export default function Dashboard() {
                 </p>
 
                 <p className="mt-2 text-4xl font-bold">
-                  {stats.loading ? '...' : stats.totalClaims}
+                  {stats.totalClaims}
                 </p>
               </div>
 
@@ -159,7 +165,7 @@ export default function Dashboard() {
             </p>
           </div>
 
-          {/* Demo members / Status */}
+          {/* Status */}
           <div className="card">
             <div className="flex items-start justify-between">
               <div>
