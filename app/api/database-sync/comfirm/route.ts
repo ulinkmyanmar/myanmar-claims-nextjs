@@ -1,62 +1,83 @@
-// app/api/database-sync/confirm/route.ts
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 
 export async function POST(req: Request) {
   try {
-    const { version, coverageDate, records } = await req.json();
-
-    if (!records || !Array.isArray(records)) {
-      return NextResponse.json({ error: "No records to confirm" }, { status: 400 });
-    }
+    const body = await req.json();
+    const { version, coverageDate, records } = body;
 
     const supabase = await getSupabaseServerClient();
 
-    if (supabase) {
-      // 1. 将解析出的新纪录格式化并插入 Supabase 数据库表
-      const rowsToInsert = records.map((row: any, idx: number) => ({
-        historical_member_id: row["Historical Member ID"] || row["Member ID"] || `MEM-${Date.now()}-${idx}`,
-        client_name: row["Preferred Full Name"] || row["Client Name"] || "Unknown",
-        date_of_birth: row["Date of Birth"] || null,
-        gender: row["Gender"] || null,
-        claim_no: row["Claim No"] || `CLM-${Date.now()}-${idx}`,
-        claim_status: "Active",
-        claim_type: "Uploaded Snapshot",
-        createddatetime: new Date().toISOString(),
-        createdbyuser: "Admin Myanmar",
-      }));
+    if (!supabase) {
+      return NextResponse.json(
+        { error: "Database connection failed" },
+        { status: 500 }
+      );
+    }
 
-      // 执行批量 Upsert (插入或修改)
-      const { error } = await supabase
+    let insertedCount = 0;
+
+    // 如果上传解析到了记录，格式化并写入数据库
+    if (records && Array.isArray(records) && records.length > 0) {
+      const rowsToInsert = records.map((row: any, idx: number) => {
+        const memberId = row["Historical Member ID"] || row["Member ID"] || `MEM-${Date.now()}-${idx}`;
+        const claimNo = row["Claim No"] || row["Claim Number"] || `IMPORT-${Date.now()}-${idx}`;
+
+        return {
+          historical_member_id: memberId,
+          client_name: row["Preferred Full Name"] || row["Client Name"] || "Imported Record",
+          date_of_birth: row["Date of Birth"] || null,
+          gender: row["Gender"] || null,
+          claim_no: claimNo,
+          claim_status: "Active",
+          claim_type: "Historical Import",
+          createddatetime: new Date().toISOString(),
+          createdbyuser: "Admin Myanmar",
+          modifieddatetime: new Date().toISOString(),
+          modifiedbyuser: "Admin Myanmar",
+        };
+      });
+
+      // 执行批量插入/写入数据库表 mcs_claims
+      const { error: insertError } = await supabase
         .schema("MyanmarClaimSystem")
         .from("mcs_claims")
         .upsert(rowsToInsert, { onConflict: "historical_member_id" });
 
-      if (error) {
-        console.error("Supabase Sync Error:", error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+      if (insertError) {
+        console.error("Database Insert Error:", insertError);
+        return NextResponse.json(
+          { error: insertError.message },
+          { status: 500 }
+        );
       }
 
-      // 2. 插入同步历史记录
-      await supabase
-        .schema("MyanmarClaimSystem")
-        .from("mcs_database_sync_history")
-        .insert({
-          version,
-          coverage_date: coverageDate,
-          inserted: rowsToInsert.length,
-          status: "Active",
-          method: "Controlled sync / upsert",
-          updated_by: "Admin Myanmar",
-        });
+      insertedCount = rowsToInsert.length;
     }
+
+    // 保存同步历史审计日志到 mcs_database_sync_history
+    await supabase
+      .schema("MyanmarClaimSystem")
+      .from("mcs_database_sync_history")
+      .insert({
+        version: version || "New Snapshot",
+        coverage_date: coverageDate || new Date().toISOString().split("T")[0],
+        inserted: insertedCount,
+        status: "Active",
+        method: "Controlled sync / upsert",
+        updated_by: "Admin Myanmar",
+      });
 
     return NextResponse.json({
       success: true,
-      message: "Data merged successfully into live database.",
+      message: "Sync completed successfully",
+      insertedCount,
     });
   } catch (error: any) {
-    console.error("Confirm Sync Error:", error);
-    return NextResponse.json({ error: error.message || "Failed to save records" }, { status: 500 });
+    console.error("Confirm API Error:", error);
+    return NextResponse.json(
+      { error: error.message || "Internal server error" },
+      { status: 500 }
+    );
   }
 }
