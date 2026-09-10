@@ -1,0 +1,35 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+export async function GET() {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // 1. 查询 claims 总条数
+    const { count: claimsCount, error: countErr } = await supabase
+      .schema("MyanmarClaimSystem")
+      .from("mcs_claims")
+      .select("*", { count: "exact", head: true });
+
+    // 2. 查询最新的同步历史记录
+    const { data: latestSync } = await supabase
+      .schema("MyanmarClaimSystem")
+      .from("mcs_database_sync_history")
+      .select("*")
+      .order("createddatetime", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    return NextResponse.json({
+      totalClaims: claimsCount || 0,
+      latestVersion: latestSync?.version || "Initial snapshot",
+      coverageDate: latestSync?.coverage_date || "30-Jun-2026",
+      updatedBy: latestSync?.updated_by || "Admin Myanmar",
+      updatedOn: latestSync?.createddatetime || new Date().toISOString(),
+    });
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to load dashboard stats" }, { status: 500 });
+  }
+}
