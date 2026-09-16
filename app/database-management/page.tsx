@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import AppShell from '@/components/AppShell'
 
-// 定义历史记录的数据结构
 interface SyncHistoryItem {
   id?: number
   version: string
@@ -12,24 +11,31 @@ interface SyncHistoryItem {
   method: string
   updated_by: string
   createddatetime?: string
+  created_at?: string
 }
 
 export default function DatabaseManagementPage() {
-  // 1. 初始化 state，默认为空或加载状态
   const [historyList, setHistoryList] = useState<SyncHistoryItem[]>([])
   const [loading, setLoading] = useState(true)
 
-  // 2. 封装从 API 获取历史记录的函数
-  const fetchSyncHistory = async () => {
+  // 1. 从 API 获取最新历史记录（禁用缓存，保证每次进页面都是最新的）
+  const fetchHistory = async () => {
     try {
       setLoading(true)
-      const res = await fetch('/api/database-sync/history')
+      // 加上 cache: 'no-store' 彻底禁用 Next.js 路由缓存
+      const res = await fetch('/api/database-sync/history', {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+        },
+      })
+      
       if (res.ok) {
         const data = await res.json()
         if (Array.isArray(data) && data.length > 0) {
           setHistoryList(data)
         } else {
-          // 兜底保底数据
+          // 如果 Supabase 里为空，显示默认初始快照
           setHistoryList([
             {
               version: 'Claims History 2022 – Jun 2026',
@@ -42,99 +48,92 @@ export default function DatabaseManagementPage() {
           ])
         }
       }
-    } catch (error) {
-      console.error('Failed to fetch sync history:', error)
+    } catch (err) {
+      console.error('Failed to load history:', err)
     } finally {
       setLoading(false)
     }
   }
 
-  // 3. 页面挂载时自动拉取 Supabase 数据库里的最新历史
+  // 组件挂载时自动抓取
   useEffect(() => {
-    fetchSyncHistory()
+    fetchHistory()
   }, [])
 
-  // 处理同步成功后的回调（重新拉取数据库）
-  const handleSyncSuccess = () => {
-    fetchSyncHistory()
+  // 辅助函数：格式化显示时间
+  const formatTime = (timeStr?: string) => {
+    if (!timeStr || timeStr === 'Initial snapshot') return 'Initial snapshot'
+    const date = new Date(timeStr)
+    return isNaN(date.getTime())
+      ? timeStr
+      : date.toLocaleString('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        })
   }
 
   return (
     <AppShell>
       <div className="space-y-6">
-        {/* 页面上方：Validation checklist & 上传区域 */}
-        {/* ...（保持你原有的上传组件和 Checklist 逻辑）... */}
+        {/* ... 页面的上半部分：Validation checklist 等区域保持不变 ... */}
 
-        {/* 下方：Database synchronization history 列表 */}
-        <div className="card">
+        {/* Database synchronization history */}
+        <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-bold">Database synchronization history</h2>
-          <p className="text-sm text-muted mb-4">
+          <p className="mt-1 text-sm text-stone-500">
             Audit history for activated historical snapshots.
           </p>
 
-          <div className="overflow-x-auto">
+          <div className="mt-6 overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b bg-stone-50 text-xs uppercase text-stone-500">
+              <thead className="bg-stone-50 text-xs uppercase text-stone-500">
                 <tr>
-                  <th className="p-3">Version</th>
-                  <th className="p-3">Claims Covered Through</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3">Method</th>
-                  <th className="p-3">Updated By</th>
-                  <th className="p-3">Updated On</th>
+                  <th className="px-4 py-3">VERSION</th>
+                  <th className="px-4 py-3">CLAIMS COVERED THROUGH</th>
+                  <th className="px-4 py-3">STATUS</th>
+                  <th className="px-4 py-3">METHOD</th>
+                  <th className="px-4 py-3">UPDATED BY</th>
+                  <th className="px-4 py-3">UPDATED ON</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y divide-stone-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="p-4 text-center text-muted">
-                      Loading history...
-                    </td>
-                  </tr>
-                ) : historyList.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="p-4 text-center text-muted">
-                      No sync history found.
+                    <td colSpan={6} className="px-4 py-6 text-center text-stone-400">
+                      Loading synchronization history...
                     </td>
                   </tr>
                 ) : (
-                  historyList.map((item, index) => {
-                    // 格式化时间显示
-                    let displayTime = item.createddatetime || 'Initial snapshot'
-                    if (item.createddatetime && item.createddatetime !== 'Initial snapshot') {
-                      const d = new Date(item.createddatetime)
-                      if (!isNaN(d.getTime())) {
-                        displayTime = d.toLocaleString('en-GB', {
-                          day: '2-digit',
-                          month: 'short',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })
-                      }
-                    }
-
-                    return (
-                      <tr key={item.id || index} className="hover:bg-stone-50">
-                        <td className="p-3 font-medium">{item.version}</td>
-                        <td className="p-3">{item.coverage_date}</td>
-                        <td className="p-3">
-                          <span
-                            className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
-                              item.status === 'Active'
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-stone-100 text-stone-600'
-                            }`}
-                          >
-                            {item.status}
-                          </span>
-                        </td>
-                        <td className="p-3">{item.method}</td>
-                        <td className="p-3">{item.updated_by}</td>
-                        <td className="p-3">{displayTime}</td>
-                      </tr>
-                    )
-                  })
+                  historyList.map((item, idx) => (
+                    <tr key={item.id || idx} className="hover:bg-stone-50/50">
+                      <td className="px-4 py-4 font-medium text-stone-900">
+                        {item.version}
+                      </td>
+                      <td className="px-4 py-4 text-stone-600">
+                        {item.coverage_date}
+                      </td>
+                      <td className="px-4 py-4">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                            item.status === 'Active'
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : 'bg-stone-100 text-stone-600'
+                          }`}
+                        >
+                          {item.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-stone-600">{item.method}</td>
+                      <td className="px-4 py-4 text-stone-600">{item.updated_by}</td>
+                      <td className="px-4 py-4 text-stone-600">
+                        {formatTime(item.createddatetime || item.created_at)}
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
