@@ -1,110 +1,12 @@
-import { cookies } from 'next/headers'
-import { createServerClient } from '@supabase/ssr'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-// Server-side Supabase client
-// Used by Route Handlers and Server Components
-// Auth session is stored in httpOnly cookies
-export async function getSupabaseServerClient() {
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!url || !key) {
-    return null
-  }
-
-
-  const cookieStore = await cookies()
-
-
-  return createServerClient(
-    url,
-    key,
-    {
-     
-
-      cookies: {
-
-        getAll() {
-          return cookieStore.getAll()
-        },
-
-
-        setAll(cookiesToSet) {
-
-          try {
-
-            cookiesToSet.forEach(
-              ({ name, value, options }) =>
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                )
-            )
-
-          } catch {
-
-            // Cookie updates are handled by middleware
-            // when called from Server Components
-
-          }
-
-        },
-
-      },
-
-    }
-  )
-
+// 导出通用的 createClient 方法（客户端、服务端通用，不依赖 next/headers）
+export function createClient() {
+  return createSupabaseClient(supabaseUrl, supabaseKey)
 }
 
-
-
-// Returns logged-in user profile
-// Used by AppShell for role checking
-
-export async function getCurrentUserProfile() {
-
-  const supabase = await getSupabaseServerClient()
-
-  if (!supabase) {
-    return null
-  }
-
-
-  const {
-    data: {
-      user
-    }
-  } = await supabase.auth.getUser()
-
-
-  if (!user) {
-    return null
-  }
-
-
-  const {
-    data: profile
-  } = await supabase
-    .from('profiles')
-    .select(
-      'user_id, full_name, email, role, active'
-    )
-    .eq(
-      'user_id',
-      user.id
-    )
-    .maybeSingle()
-
-
-  if (!profile || !profile.active) {
-    return null
-  }
-
-
-  return profile
-
-}
+// 导出单例实例，方便直接调用
+export const supabase = createSupabaseClient(supabaseUrl, supabaseKey)
