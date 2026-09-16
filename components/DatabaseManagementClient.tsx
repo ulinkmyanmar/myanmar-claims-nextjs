@@ -50,7 +50,7 @@ export default function DatabaseManagementClient() {
   useEffect(() => {
     async function fetchHistory() {
       try {
-        const res = await fetch('/api/database-sync/history')
+        const res = await fetch('/api/database-sync/history', { cache: 'no-store' })
         const data = await res.json()
         if (data.history && data.history.length > 0) {
           const formattedHistory = data.history.map((item: any) => ({
