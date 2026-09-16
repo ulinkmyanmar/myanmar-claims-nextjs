@@ -19,62 +19,38 @@ export async function POST(request: NextRequest) {
 
     const currentISOTimestamp = new Date().toISOString();
 
-    // 1. 如果存在待同步的记录，映射并写入 mcs_claims
+    // 1. 如果存在待同步的记录，先去重再写入 mcs_claims
     if (Array.isArray(records) && records.length > 0) {
-      // 构建兼容字段名的 Payload
-      const formattedRecords = records.map((rec: any) => {
-        const row: Record<string, any> = {
-          // 兼容各种可能的理赔单号字段名
-          claim_no: rec.claimNo || rec.claim_no || "",
-          client_name: rec.clientName || rec.client_name || "",
-          date_of_birth: rec.dateOfBirth || rec.date_of_birth || null,
-          gender: rec.gender || null,
-          createddatetime: currentISOTimestamp,
-        };
+      // 步骤 A：根据 claim_no 进行内存去重，防止同批次数据冲突
+      const uniqueRecordsMap = new Map();
 
-        // 如果包含 memberId，同时注入多种常见的 key 保证不报错
-        if (rec.memberId || rec.member_id) {
-          const mId = rec.memberId || rec.member_id;
-          row.historical_member_id = mId; // 常见叫法 1
-          row.historicalmemberid = mId;   // 常见叫法 2
-          row.member_id = mId;            // 常见叫法 3
-        }
-
-        return row;
-      });
-
-      // 尝试批量更新或插入
-      const { error: claimsError } = await supabase
-        .schema("MyanmarClaimSystem")
-        .from("mcs_claims")
-        .upsert(formattedRecords, { onConflict: "claim_no" });
-
-      if (claimsError) {
-        console.error("Upsert claims error detail:", claimsError);
-        
-        // 如果依然报列名错误，降级策略：剥离非核心列再次尝试写入
-        if (claimsError.message.includes("Could not find the") && claimsError.message.includes("column")) {
-          const fallbackRecords = records.map((rec: any) => ({
-            claim_no: rec.claimNo || rec.claim_no || "",
+      records.forEach((rec: any) => {
+        const claimNo = rec.claimNo || rec.claim_no || "";
+        if (claimNo) {
+          // 如果有重复的 claim_no，后面的会覆盖前面的，确保批次内唯一
+          uniqueRecordsMap.set(claimNo, {
+            claim_no: claimNo,
             client_name: rec.clientName || rec.client_name || "",
             date_of_birth: rec.dateOfBirth || rec.date_of_birth || null,
             gender: rec.gender || null,
-          }));
+            createddatetime: currentISOTimestamp,
+          });
+        }
+      });
 
-          const { error: fallbackErr } = await supabase
-            .schema("MyanmarClaimSystem")
-            .from("mcs_claims")
-            .upsert(fallbackRecords, { onConflict: "claim_no" });
+      const formattedRecords = Array.from(uniqueRecordsMap.values());
 
-          if (fallbackErr) {
-            return NextResponse.json(
-              { error: `Database error: ${fallbackErr.message}` },
-              { status: 500 }
-            );
-          }
-        } else {
+      // 步骤 B：执行去重后的常规 insert 插入数据
+      if (formattedRecords.length > 0) {
+        const { error: claimsError } = await supabase
+          .schema("MyanmarClaimSystem")
+          .from("mcs_claims")
+          .insert(formattedRecords);
+
+        if (claimsError) {
+          console.error("Insert claims error detail:", claimsError);
           return NextResponse.json(
-            { error: `Failed to update claims: ${claimsError.message}` },
+            { error: `Database error: ${claimsError.message}` },
             { status: 500 }
           );
         }
@@ -88,7 +64,7 @@ export async function POST(request: NextRequest) {
       .update({ status: "Archived" })
       .eq("status", "Active");
 
-    // 3. 插入最新的同步历史记录（带上精确 ISO 时间）
+    // 3. 插入最新的同步历史记录（带上当前精准 ISO 时间戳）
     const { error: historyError } = await supabase
       .schema("MyanmarClaimSystem")
       .from("mcs_database_sync_history")
