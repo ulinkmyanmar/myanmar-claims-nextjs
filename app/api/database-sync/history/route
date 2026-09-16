@@ -23,13 +23,4 @@ export async function GET() {
   }
 }
 
-// 插入 sync history 记录的代码段：
-const { error: historyErr } = await supabase
-  .schema("MyanmarClaimSystem")
-  .from("mcs_database_sync_history")
-  .insert({
-    version: fileName, // 例如 "Slim_Claims_Matching_Reference.xlsx"
-    total_claims: claimsCount,
-    createddatetime: new Date().toISOString(), // 👈 关键点：确保写入精准的当前上传时间戳
-    updated_by: "Admin Myanmar",
-  });
+
