@@ -72,4 +72,7 @@ async function getDashboardStats() {
 }
 
 export default async function Dashboard() {
-  const stats =
+  const stats = await getDashboardStats()
+
+  return (
+    <AppShell>
