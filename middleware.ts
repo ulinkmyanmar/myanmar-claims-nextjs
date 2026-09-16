@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
-const PUBLIC_PATHS = ['/login', '/api/auth/login']
+const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/mfa']
 
 export async function middleware(request: NextRequest) {
   const response = NextResponse.next({ request })
@@ -10,9 +10,6 @@ export async function middleware(request: NextRequest) {
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   const isPublicPath = PUBLIC_PATHS.some((path) => request.nextUrl.pathname.startsWith(path))
 
-  // If Supabase isn't configured yet, don't lock the developer out of the
-  // whole app — but still keep them off protected pages until it is, since
-  // there is no way to verify a password without it.
   if (!url || !key) {
     if (!isPublicPath) return NextResponse.redirect(new URL('/login', request.url))
     return response
@@ -30,14 +27,22 @@ export async function middleware(request: NextRequest) {
     },
   })
 
-  // Re-validates the session against Supabase Auth on every request (this is
-  // the "is this user actually still logged in" check, done server-side).
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user && !isPublicPath) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
-  if (user && isPublicPath) {
+
+  if (user && !isPublicPath) {
+    // 关键新增：即便密码正确、session 存在，
+    // 如果该账号已绑定 MFA 但还没完成二次验证（还停留在 aal1），也不能放行
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+      return NextResponse.redirect(new URL('/login', request.url))
+    }
+  }
+
+  if (user && isPublicPath && request.nextUrl.pathname === '/login') {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
