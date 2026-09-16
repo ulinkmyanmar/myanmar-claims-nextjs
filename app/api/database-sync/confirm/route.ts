@@ -70,3 +70,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error?.message || "Internal server error" }, { status: 500 });
   }
 }
+
+// 插入 sync history 时的代码段
+const nowISO = new Date().toISOString()
+
+const { error: historyErr } = await supabase
+  .schema("MyanmarClaimSystem")
+  .from("mcs_database_sync_history")
+  .insert({
+    version: version || fileName,
+    coverage_date: coverageDate,
+    status: "Active",
+    method: "Controlled sync / upsert",
+    updated_by: "Admin Myanmar",
+    createddatetime: nowISO, // 👈 显式写入当前 ISO 时间格式
+  })
