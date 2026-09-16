@@ -10,7 +10,7 @@ async function getDashboardStats() {
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    // 1. 理赔总数
+    // 1. 理赔记录总数
     const { count: totalClaims } = await supabase
       .schema('MyanmarClaimSystem')
       .from('mcs_claims')
@@ -26,7 +26,7 @@ async function getDashboardStats() {
       (memberData || []).map((row) => row.client_name).filter(Boolean)
     ).size
 
-    // 3. 最新同步记录（文件名与更新时间）
+    // 3. 查询最新的上传同步历史记录
     const { data: latestSync } = await supabase
       .schema('MyanmarClaimSystem')
       .from('mcs_database_sync_history')
@@ -35,15 +35,22 @@ async function getDashboardStats() {
       .limit(1)
       .maybeSingle()
 
-    const formattedTime = latestSync?.createddatetime
-      ? new Date(latestSync.createddatetime).toLocaleString('en-GB', {
+    // 格式化上传时间戳：如果有时区问题或解析为空，获取具体时间
+    let formattedTime = 'Initial Import'
+    
+    if (latestSync?.createddatetime) {
+      const dateObj = new Date(latestSync.createddatetime)
+      if (!isNaN(dateObj.getTime())) {
+        formattedTime = dateObj.toLocaleString('en-GB', {
           day: '2-digit',
           month: 'short',
           year: 'numeric',
           hour: '2-digit',
           minute: '2-digit',
+          hour12: false,
         })
-      : 'Initial Import'
+      }
+    }
 
     return {
       fileName: latestSync?.version || 'Slim_Claims_Matching_Reference.xlsx',
@@ -54,7 +61,7 @@ async function getDashboardStats() {
   } catch (error) {
     return {
       fileName: 'Slim_Claims_Matching_Reference.xlsx',
-      updatedAt: 'Recently updated',
+      updatedAt: 'Initial Import',
       totalMembers: 33,
       totalClaims: 123,
     }
