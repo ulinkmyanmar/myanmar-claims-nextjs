@@ -183,15 +183,22 @@ export default function DatabaseManagementClient() {
       setMessage('Synchronizing data to live database...')
 
       // 数据清洗与字段 Mapping，避免包含空格的复杂 key 破坏服务端 JSON 格式
-      const safeRecords = (syncResult.parsedRecords || []).map((row: any) => {
-        return {
-          memberId: String(row["Historical Member ID"] || row["Member ID"] || row["ID"] || "").trim(),
-          clientName: String(row["Preferred Full Name"] || row["Client Name"] || row["Name"] || "").trim(),
-          dateOfBirth: row["Date of Birth"] ? String(row["Date of Birth"]).trim() : null,
-          gender: row["Gender"] ? String(row["Gender"]).trim() : null,
-          claimNo: row["Claim No"] ? String(row["Claim No"]).trim() : "",
-        }
-      })
+            // 数据清洗与字段 Mapping，避免包含空格的复杂 key 破坏服务端 JSON 格式
+      // 只提交真正的新增记录，避免重复插入已存在的记录；
+      // Claim No 列名做多种兼容匹配，防止表头写法不一致导致静默丢失数据
+      const safeRecords = (syncResult.parsedRecords || [])
+        .filter((row: any) => row["_status"] === "NEW_RECORD")
+        .map((row: any) => {
+          return {
+            memberId: String(row["Historical Member ID"] || row["Member ID"] || row["ID"] || "").trim(),
+            clientName: String(row["Preferred Full Name"] || row["Client Name"] || row["Name"] || "").trim(),
+            dateOfBirth: row["Date of Birth"] ? String(row["Date of Birth"]).trim() : null,
+            gender: row["Gender"] ? String(row["Gender"]).trim() : null,
+            claimNo: String(
+              row["Claim No"] || row["Claim No."] || row["Claim Number"] || row["claim_no"] || ""
+            ).trim(),
+          }
+        })
 
       const response = await fetch('/api/database-sync/confirm', {
         method: 'POST',
