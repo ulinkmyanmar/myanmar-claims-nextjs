@@ -1,15 +1,36 @@
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-// 1. 提供单例实例，防空保护
-export const supabase = createSupabaseClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseKey || 'placeholder'
-)
+// 供 API Routes 使用：基于 cookie 的服务端客户端，
+// 登录/登出/MFA 校验都要用这个，才能和 middleware.ts 共享同一个 session
+export async function getSupabaseServerClient() {
+  if (!supabaseUrl || !supabaseKey) return null
 
-// 2. 基础创建方法
+  const cookieStore = await cookies()
+
+  return createServerClient(supabaseUrl, supabaseKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll()
+      },
+      setAll(cookiesToSet) {
+        try {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options)
+          )
+        } catch {
+          // 在某些 Server Component 场景下无法写 cookie，可以忽略
+        }
+      },
+    },
+  })
+}
+
+// 保留：给一些不需要 session、只做只读查询的地方用（如 dashboard 统计）
 export function createClient() {
   return createSupabaseClient(
     supabaseUrl || 'https://placeholder.supabase.co',
@@ -17,53 +38,26 @@ export function createClient() {
   )
 }
 
-// 3. 供 API Routes / 服务端调用的客户端获取函数
-export async function getSupabaseServerClient() {
-  return createSupabaseClient(
-    supabaseUrl || 'https://placeholder.supabase.co',
-    supabaseKey || 'placeholder'
-  )
-}
-
-// 4. 彻底防止客户端/服务端崩盘的 Profile 获取函数
 export async function getCurrentUserProfile() {
-  // 定义标准 Admin Profile，确保侧边栏菜单能正确识别 role: 'admin'
-  const adminProfile = {
-    id: 'admin',
-    name: 'Myanmar Admin',
-    full_name: 'Myanmar Admin',
-    email: 'admin@myanmar.com',
-    role: 'admin',
-  }
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return null
 
-  // 关键点：如果是浏览器客户端环境直接调用，立刻返回保底数据，绝不走 Supabase 服务端通信
-  if (typeof window !== 'undefined') {
-    return adminProfile
-  }
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
 
-  try {
-    if (!supabaseUrl || !supabaseKey) {
-      return adminProfile
-    }
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, active, full_name, email')
+    .eq('user_id', user.id)
+    .maybeSingle()
 
-    const client = createSupabaseClient(supabaseUrl, supabaseKey)
-    const { data: { user }, error } = await client.auth.getUser()
+  if (!profile || !profile.active) return null
 
-    if (error || !user) {
-      return adminProfile
-    }
-
-    const fullName = user.user_metadata?.full_name || user.user_metadata?.name || 'Myanmar Admin'
-    
-    return {
-      id: user.id,
-      name: fullName,
-      full_name: fullName,
-      email: user.email || 'admin@myanmar.com',
-      role: 'admin', // 强制赋予 admin 权限，确保 Database Management 菜单可见
-    }
-  } catch (err) {
-    // 捕获所有潜在报错，防范 Next.js 页面崩溃
-    return adminProfile
+  return {
+    id: user.id,
+    name: profile.full_name,
+    full_name: profile.full_name,
+    email: profile.email || user.email || '',
+    role: profile.role,
   }
 }
