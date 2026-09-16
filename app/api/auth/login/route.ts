@@ -3,178 +3,79 @@ import { z } from 'zod'
 
 import { getSupabaseServerClient } from '@/lib/supabase-server'
 
-
 const loginSchema = z.object({
-  email: z
-    .string()
-    .trim()
-    .min(1, 'Email is required')
-    .email('Enter a valid email address'),
-
-  password: z
-    .string()
-    .min(1, 'Password is required'),
+  email: z.string().trim().min(1, 'Email is required').email('Enter a valid email address'),
+  password: z.string().min(1, 'Password is required'),
 })
 
-
 export async function POST(req: Request) {
-
   const supabase = await getSupabaseServerClient()
 
   if (!supabase) {
     return NextResponse.json(
-      {
-        ok: false,
-        error:
-          'Authentication is not configured on the server yet.',
-      },
+      { ok: false, error: 'Authentication is not configured on the server yet.' },
       { status: 500 }
     )
   }
 
-
-  // Validate request
-  const body =
-    await req.json().catch(() => null)
-
-  const parsed =
-    loginSchema.safeParse(body)
+  const body = await req.json().catch(() => null)
+  const parsed = loginSchema.safeParse(body)
 
   if (!parsed.success) {
     return NextResponse.json(
-      {
-        ok: false,
-        error:
-          parsed.error.issues[0]?.message ??
-          'Invalid request',
-      },
+      { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid request' },
       { status: 400 }
     )
   }
 
+  const { email, password } = parsed.data
 
-  const {
-    email,
-    password,
-  } = parsed.data
-
-
-  // Authenticate with Supabase Auth
-  const {
-    data,
-    error,
-  } =
-    await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
   if (error || !data.user) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          'Incorrect email or password.',
-      },
-      { status: 401 }
-    )
+    return NextResponse.json({ ok: false, error: 'Incorrect email or password.' }, { status: 401 })
   }
 
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, active, full_name')
+    .eq('user_id', data.user.id)
+    .maybeSingle()
 
-  // Check authorized active profile
-  const {
-    data: profile,
-  } =
-    await supabase
-      .from('profiles')
-      .select(
-        'role, active, full_name'
-      )
-      .eq(
-        'user_id',
-        data.user.id
-      )
-      .maybeSingle()
-
-
-  // Reject unauthorized account
   if (!profile || !profile.active) {
-
     await supabase.auth.signOut()
-
     return NextResponse.json(
-      {
-        ok: false,
-        error:
-          'This account is not authorized to access this system.',
-      },
+      { ok: false, error: 'This account is not authorized to access this system.' },
       { status: 403 }
     )
   }
 
+  // 关键新增：检查这个账号是否已经绑定了 MFA，如果绑定了，
+  // 密码正确不代表登录完成，还需要走二次验证
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
 
-  // ==========================================
-  // RECORD SUCCESSFUL LOGIN
-  // ==========================================
-
-  const loginTime =
-    new Date().toISOString()
-
-  const {
-    error: loginLogError,
-  } =
-    await supabase
-      .schema('MyanmarClaimSystem')
-      .from('mcs_login_logs')
-      .insert({
-        user_id: data.user.id,
-
-        email:
-          data.user.email ?? email,
-
-        full_name:
-          profile.full_name,
-
-        login_time:
-          loginTime,
-
-        login_status:
-          'SUCCESS',
-
-        CreatedDateTime:
-          loginTime,
-
-        CreatedByUser:
-          data.user.email ?? email,
-
-        ModifiedDateTime:
-          loginTime,
-
-        ModifiedByUser:
-          data.user.email ?? email,
-      })
-
-
-  // Login should NOT fail just because
-  // audit logging failed.
-  if (loginLogError) {
-
-    console.error(
-      'Failed to record login:',
-      loginLogError
-    )
-
+  if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+    return NextResponse.json({
+      ok: true,
+      mfaRequired: true,
+    })
   }
 
+  const loginTime = new Date().toISOString()
+  await supabase
+    .schema('MyanmarClaimSystem')
+    .from('mcs_login_logs')
+    .insert({
+      user_id: data.user.id,
+      email: data.user.email ?? email,
+      full_name: profile.full_name,
+      login_time: loginTime,
+      login_status: 'SUCCESS',
+      CreatedDateTime: loginTime,
+      CreatedByUser: data.user.email ?? email,
+      ModifiedDateTime: loginTime,
+      ModifiedByUser: data.user.email ?? email,
+    })
 
-  // ==========================================
-  // LOGIN SUCCESS
-  // ==========================================
-
-  return NextResponse.json({
-    ok: true,
-    role: profile.role,
-    fullName: profile.full_name,
-  })
+  return NextResponse.json({ ok: true, mfaRequired: false, role: profile.role, fullName: profile.full_name })
 }
