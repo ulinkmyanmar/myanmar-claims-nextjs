@@ -11,39 +11,39 @@ export function createClient() {
   return createSupabaseClient(supabaseUrl, supabaseKey)
 }
 
-// 3. 补全缺失的函数 1：getSupabaseServerClient
+// 3. 导出 API 使用的获取客户端函数
 export async function getSupabaseServerClient() {
   return createSupabaseClient(supabaseUrl, supabaseKey)
 }
 
-// 4. 补全缺失的函数 2：getCurrentUserProfile (用于 AppShell 和 Auth 验证)
+// 4. 修复类型报错：补全 AppShell 所需要的 full_name 属性
 export async function getCurrentUserProfile() {
+  const defaultProfile = {
+    id: 'admin',
+    name: 'Service Account',
+    full_name: 'Service Account',
+    email: 'admin@myanmar.com',
+    role: 'Admin role',
+  }
+
   try {
     const client = createSupabaseClient(supabaseUrl, supabaseKey)
     const { data: { user } } = await client.auth.getUser()
 
     if (!user) {
-      // 保底返回默认管理员 Profile，防止 AppShell 页面崩掉
-      return {
-        id: 'admin',
-        name: 'Service Account',
-        email: 'admin@myanmar.com',
-        role: 'Admin role',
-      }
+      return defaultProfile
     }
+
+    const fullName = user.user_metadata?.full_name || user.user_metadata?.name || 'Service Account'
 
     return {
       id: user.id,
-      name: user.user_metadata?.full_name || 'Service Account',
+      name: fullName,
+      full_name: fullName, // 👈 解决 AppShell.tsx(17,29) 报错的关键属性
       email: user.email || 'admin@myanmar.com',
       role: user.user_metadata?.role || 'Admin role',
     }
   } catch (err) {
-    return {
-      id: 'admin',
-      name: 'Service Account',
-      email: 'admin@myanmar.com',
-      role: 'Admin role',
-    }
+    return defaultProfile
   }
 }
