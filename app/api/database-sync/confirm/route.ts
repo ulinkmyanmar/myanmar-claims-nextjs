@@ -17,11 +17,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-        const currentISOTimestamp = new Date().toISOString();
+    const currentISOTimestamp = new Date().toISOString();
     let formattedRecords: any[] = [];
 
     // 1. 如果存在待同步的记录，先去重再写入 mcs_claims
     if (Array.isArray(records) && records.length > 0) {
+      // 步骤 A：根据 claim_no 进行内存去重，防止同批次数据冲突
       const uniqueRecordsMap = new Map();
 
       records.forEach((rec: any) => {
@@ -29,6 +30,7 @@ export async function POST(request: NextRequest) {
           rec.claimNo || rec.claim_no || rec["Claim No"] || rec["Claim Number"] || ""
         ).trim();
         if (claimNo) {
+          // 如果有重复的 claim_no，后面的会覆盖前面的，确保批次内唯一
           uniqueRecordsMap.set(claimNo, {
             claim_no: claimNo,
             client_name: rec.clientName || rec.client_name || "",
@@ -41,6 +43,7 @@ export async function POST(request: NextRequest) {
 
       formattedRecords = Array.from(uniqueRecordsMap.values());
 
+      // 步骤 B：执行去重后的常规 insert 插入数据
       if (formattedRecords.length > 0) {
         const { error: claimsError } = await supabase
           .schema("MyanmarClaimSystem")
@@ -85,10 +88,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-        return NextResponse.json({
+    return NextResponse.json({
       success: true,
       message: "Database synchronized successfully.",
       submittedCount: records?.length || 0,
       insertedCount: formattedRecords.length,
       timestamp: currentISOTimestamp,
     });
+  } catch (error: any) {
+    console.error("Confirm sync server error:", error);
+    return NextResponse.json(
+      { error: error.message || "Internal server error during confirmation." },
+      { status: 500 }
+    );
+  }
+}
