@@ -3,27 +3,23 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-// 1. 通用基础客户端实例
 export const supabase = createSupabaseClient(supabaseUrl, supabaseKey)
 
-// 2. 导出基础创建函数
 export function createClient() {
   return createSupabaseClient(supabaseUrl, supabaseKey)
 }
 
-// 3. 导出 API 使用的获取客户端函数
 export async function getSupabaseServerClient() {
   return createSupabaseClient(supabaseUrl, supabaseKey)
 }
 
-// 4. 修复类型报错：补全 AppShell 所需要的 full_name 属性
 export async function getCurrentUserProfile() {
   const defaultProfile = {
     id: 'admin',
-    name: 'Service Account',
-    full_name: 'Service Account',
+    name: 'Myanmar Admin',
+    full_name: 'Myanmar Admin',
     email: 'admin@myanmar.com',
-    role: 'Admin role',
+    role: 'admin', // 👈 关键点：改为 'admin'，触发侧边栏显示 Database Management
   }
 
   try {
@@ -34,14 +30,16 @@ export async function getCurrentUserProfile() {
       return defaultProfile
     }
 
-    const fullName = user.user_metadata?.full_name || user.user_metadata?.name || 'Service Account'
+    const fullName = user.user_metadata?.full_name || user.user_metadata?.name || 'Myanmar Admin'
+    // 优先读取用户真实角色，如果未读取到直接给 'admin'
+    const role = user.user_metadata?.role || user.role || 'admin'
 
     return {
       id: user.id,
       name: fullName,
-      full_name: fullName, // 👈 解决 AppShell.tsx(17,29) 报错的关键属性
+      full_name: fullName,
       email: user.email || 'admin@myanmar.com',
-      role: user.user_metadata?.role || 'Admin role',
+      role: role.toLowerCase().includes('admin') ? 'admin' : role,
     }
   } catch (err) {
     return defaultProfile
