@@ -7,15 +7,18 @@ export interface CensusMember {
   gender?: string
 }
 
+// 兼容驼峰 (demoClaims) 和 下划线 (Supabase DB) 两种属性结构
 export interface ClaimRecord {
-  patient_name: string
+  patient_name?: string
+  name?: string
   nrc_no?: string
-  claim_no: string
-  // ... 其他字段
+  nrc?: string
+  claim_no?: string
+  claimNo?: string
+  [key: string]: any
 }
 
 export function matchMemberWithClaims(member: CensusMember, claims: ClaimRecord[]) {
-  // 1. 数据清洗（转小写、去空格）
   const inputName = member.name?.trim().toLowerCase() || ''
   const inputNrc = member.nrc?.trim().toLowerCase() || ''
 
@@ -23,24 +26,31 @@ export function matchMemberWithClaims(member: CensusMember, claims: ClaimRecord[
     return { isMatched: false, matchedClaims: [] }
   }
 
-  // 2. 筛选匹配记录：必须满足【姓名全等】且【NRC全等】
   const matchedClaims = claims.filter((claim) => {
-    const claimName = claim.patient_name?.trim().toLowerCase() || ''
-    const claimNrc = claim.nrc_no?.trim().toLowerCase() || ''
+    // 兼容取值：优先取 patient_name，没有则取 name
+    const claimName = (claim.patient_name || claim.name || '').trim().toLowerCase()
+    // 兼容取值：优先取 nrc_no，没有则取 nrc
+    const claimNrc = (claim.nrc_no || claim.nrc || '').trim().toLowerCase()
 
-    // 规则 A：如果输入了 NRC，则要求 [姓名全等] AND [NRC全等]
+    // 规则 A：若输入了 NRC，必须 [姓名全等] 并且 [NRC全等]
     if (inputNrc && inputNrc !== '—' && inputNrc !== '') {
       return claimName === inputName && claimNrc === inputNrc
     }
 
-    // 规则 B：如果没填 NRC，仅允许 [姓名完全相等]（绝对禁止使用 includes 或 LIKE 模糊匹配）
+    // 规则 B：若无 NRC，仅允许 [姓名完全相等]
     return claimName === inputName
   })
+
+  // 兼容获取理赔号
+  const firstMatched = matchedClaims[0]
+  const matchedClaimNo = firstMatched 
+    ? (firstMatched.claim_no || firstMatched.claimNo || '—') 
+    : '—'
 
   return {
     isMatched: matchedClaims.length > 0,
     matchedClaims,
     claimsCount: matchedClaims.length,
-    claimNo: matchedClaims.length > 0 ? matchedClaims[0].claim_no : '—'
+    claimNo: matchedClaimNo
   }
 }
