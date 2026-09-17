@@ -38,8 +38,6 @@ export async function POST(req: Request) {
 
       let claims: any[] = []
 
-      // 优先用 NRC 做精确匹配（等于，不是模糊包含），
-      // 避免短数字串刚好出现在别人证件号里造成误命中
       if (nrc) {
         const { data, error } = await supabase
           .schema("MyanmarClaimSystem")
@@ -54,8 +52,6 @@ export async function POST(req: Request) {
         claims = data ?? []
       }
 
-      // NRC 没匹配到时，再退一步用姓名精确匹配（不区分大小写，但不是模糊包含），
-      // 并且必须同时核对生日和性别，只要有一项明确冲突就不算真正匹配
       if (claims.length === 0 && name) {
         const { data, error } = await supabase
           .schema("MyanmarClaimSystem")
@@ -69,8 +65,7 @@ export async function POST(req: Request) {
         }
 
         claims = (data ?? []).filter((claim: any) => {
-          const dobConflict =
-            dob && claim.date_of_birth && String(claim.date_of_birth) !== dob
+          const dobConflict = dob && claim.date_of_birth && String(claim.date_of_birth) !== dob
           const genderConflict =
             gender && claim.gender && claim.gender.toLowerCase() !== gender.toLowerCase()
           return !dobConflict && !genderConflict
