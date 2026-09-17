@@ -35,6 +35,8 @@ export async function POST(request: NextRequest) {
             gender: rec.gender || null,
             incident_date: rec.incidentDate || rec.incident_date || null,
             description: rec.description || null,
+            claim_status: "Active",
+            claim_type: "Historical Import",
             createddatetime: currentISOTimestamp,
           });
         }
