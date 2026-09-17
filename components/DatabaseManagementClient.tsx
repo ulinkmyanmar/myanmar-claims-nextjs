@@ -187,17 +187,15 @@ export default function DatabaseManagementClient() {
       // Claim No 列名做多种兼容匹配，防止表头写法不一致导致静默丢失数据
       const safeRecords = (syncResult.parsedRecords || [])
         .filter((row: any) => row["_status"] === "NEW_RECORD")
-        .map((row: any) => {
-          return {
-            memberId: String(row["Historical Member ID"] || row["Member ID"] || row["ID"] || "").trim(),
-            clientName: String(row["Preferred Full Name"] || row["Client Name"] || row["Name"] || "").trim(),
-            dateOfBirth: row["Date of Birth"] ? String(row["Date of Birth"]).trim() : null,
-            gender: row["Gender"] ? String(row["Gender"]).trim() : null,
-            claimNo: String(
-              row["Claim No"] || row["Claim No."] || row["Claim Number"] || row["claim_no"] || ""
-            ).trim(),
-          }
-        })
+        .map((row: any) => ({
+          memberId: row.memberId || "",
+          clientName: row.clientName || "",
+          dateOfBirth: row.dateOfBirth || null,
+          gender: row.gender || null,
+          claimNo: row.claimNo || "",
+          incidentDate: row.incidentDate || null,
+          description: row.description || "",
+        }))
 
       const response = await fetch('/api/database-sync/confirm', {
         method: 'POST',
