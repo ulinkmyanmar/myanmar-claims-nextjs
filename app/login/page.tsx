@@ -2,6 +2,7 @@
 import { Lock, ShieldCheck } from 'lucide-react'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { supabase } from '@/lib/supabase'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -10,14 +11,19 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  // 新增：MFA 相关状态
+  // MFA 相关状态
   const [mfaStep, setMfaStep] = useState(false)
   const [code, setCode] = useState('')
   const [factorId, setFactorId] = useState<string | null>(null)
 
+  // 新增：Reset Password 相关状态
+  const [resetMessage, setResetMessage] = useState<string | null>(null)
+  const [resetting, setResetting] = useState(false)
+
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+    setResetMessage(null)
     setSubmitting(true)
     try {
       const res = await fetch('/api/auth/login', {
@@ -32,7 +38,6 @@ export default function LoginPage() {
       }
 
       if (data.mfaRequired) {
-        // 需要拿到已绑定因子的 id 才能发起验证
         const factorsRes = await fetch('/api/auth/mfa/factors')
         const factorsData = await factorsRes.json()
         const verifiedFactor = factorsData.factors?.find((f: any) => f.status === 'verified')
@@ -51,6 +56,34 @@ export default function LoginPage() {
       setError('Could not reach the server. Please try again.')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // 新增：处理忘密码重置邮件的逻辑
+  async function handleForgotPassword() {
+    if (!email) {
+      setError('Please enter your email first.')
+      return
+    }
+
+    setError(null)
+    setResetMessage(null)
+    setResetting(true)
+
+    try {
+      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      })
+
+      if (resetErr) {
+        setError(resetErr.message)
+      } else {
+        setResetMessage('Password reset link sent! Please check your email inbox.')
+      }
+    } catch {
+      setError('Failed to send password reset email. Please try again.')
+    } finally {
+      setResetting(false)
     }
   }
 
@@ -103,8 +136,19 @@ export default function LoginPage() {
                   required
                 />
               </label>
+
               <label className="label">
-                Password
+                <div className="flex justify-between items-center">
+                  <span>Password</span>
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    disabled={resetting}
+                    className="text-xs text-brand font-normal hover:underline disabled:opacity-50"
+                  >
+                    {resetting ? 'Sending...' : 'Forgot password?'}
+                  </button>
+                </div>
                 <input
                   className="input mt-1"
                   type="password"
@@ -114,7 +158,10 @@ export default function LoginPage() {
                   required
                 />
               </label>
+
               {error && <p className="error">{error}</p>}
+              {resetMessage && <p className="text-xs text-green-600">{resetMessage}</p>}
+
               <button className="btn justify-center" disabled={submitting}>
                 {submitting ? 'Signing in…' : 'Login'}
               </button>
