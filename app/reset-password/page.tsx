@@ -2,7 +2,7 @@
 import { Lock } from 'lucide-react'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { getSupabaseBrowserClient } from '@/lib/supabase' // ✅ 替换为正确的导出
+import { getSupabaseBrowserClient } from '@/lib/supabase'
 
 export default function ResetPasswordPage() {
   const router = useRouter()
@@ -18,7 +18,12 @@ export default function ResetPasswordPage() {
     setSubmitting(true)
 
     try {
-      const supabase = getSupabaseBrowserClient() // ✅ 调用实例
+      const supabase = getSupabaseBrowserClient()
+      if (!supabase) {
+        setError('Supabase client failed to initialize.')
+        return
+      }
+
       const { error: updateErr } = await supabase.auth.updateUser({
         password: newPassword,
       })
