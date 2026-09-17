@@ -1,754 +1,194 @@
-"use client"
+'use client'
 
-import { useRef, useState } from "react"
-import * as XLSX from "xlsx"
-import { Download, Upload, Search, X } from "lucide-react"
+import { useState } from 'react'
+import * as XLSX from 'xlsx'
 
-type ClaimRecord = {
-  [key: string]: unknown
-}
-
-type CensusRow = {
-  name: string
+export interface BulkResultRow {
+  uploaded_member: string
   nrc: string
   dob: string
   gender: string
-  status: "Matched" | "No history" | "Pending"
-  claims: ClaimRecord[]
+  matchStatus: 'Matched' | 'No history' | 'Pending'
+  claimNo: string
+  claimsCount: number
+  matchedClaims?: any[]
 }
 
-const SAMPLE_ROWS: CensusRow[] = [
-  {
-    name: "Yoon Thadar Htun",
-    nrc: "12/ABC(N)123456",
-    dob: "11-Jul-1918",
-    gender: "Female",
-    status: "Matched",
-    claims: [
-      {
-        id: "HM0000001",
-        claim_no: "SAMPLE-0001",
-        client_name: "Yoon Thadar Htun",
-        passport_no: "12/ABC(N)123456",
-      },
-    ],
-  },
-  {
-    name: "Thiri Mon",
-    nrc: "",
-    dob: "08-Feb-1997",
-    gender: "Female",
-    status: "No history",
-    claims: [],
-  },
-  {
-    name: "Aung Min Khant",
-    nrc: "9/MABANA(N)765432",
-    dob: "22-Mar-1987",
-    gender: "Male",
-    status: "Matched",
-    claims: [
-      {
-        id: "HM0000002",
-        claim_no: "SAMPLE-0002",
-        client_name: "Aung Min Khant",
-        passport_no: "9/MABANA(N)765432",
-      },
-    ],
-  },
-]
-
 export default function BulkCensusClient() {
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [results, setResults] = useState<BulkResultRow[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [fileName, setFileName] = useState<string | null>(null)
 
-  const [rows, setRows] = useState<CensusRow[]>([])
-  const [fileName, setFileName] = useState("")
-  const [error, setError] = useState("")
-  const [showSample, setShowSample] = useState(false)
-  const [selectedRow, setSelectedRow] = useState<CensusRow | null>(null)
-  const [searching, setSearching] = useState(false)
-
-  function downloadTemplate() {
-    const data = [
-      {
-        Name: "Example Member",
-        "NRC / National ID": "12/ABC(N)123456",
-        "Date of Birth": "1990-01-01",
-        Gender: "Female",
-      },
-    ]
-
-    const worksheet = XLSX.utils.json_to_sheet(data)
-    const workbook = XLSX.utils.book_new()
-
-    XLSX.utils.book_append_sheet(
-      workbook,
-      worksheet,
-      "Census Template"
-    )
-
-    XLSX.writeFile(
-      workbook,
-      "Ulink_Myanmar_Census_Template.xlsx"
-    )
-  }
-
-  function loadSampleResult() {
-    setError("")
-    setFileName("")
-    setSelectedRow(null)
-    setShowSample(true)
-    setRows(SAMPLE_ROWS)
-  }
-
-  function openFilePicker() {
-    fileInputRef.current?.click()
-  }
-
-  async function handleFileChange(
-    event: React.ChangeEvent<HTMLInputElement>
-  ) {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-
     if (!file) return
 
-    setError("")
-    setRows([])
-    setSelectedRow(null)
-    setShowSample(false)
     setFileName(file.name)
+    setLoading(true)
+    setError(null)
 
     try {
-      const buffer = await file.arrayBuffer()
+      // 1. 读取 Excel 文件
+      const arrayBuffer = await file.arrayBuffer()
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+      const firstSheetName = workbook.SheetNames[0]
+      const worksheet = workbook.Sheets[firstSheetName]
 
-      const workbook = XLSX.read(buffer, {
-        type: "array",
-        cellDates: true,
+      // 转换为原始 JSON 数组
+      const rawRows: any[] = XLSX.utils.sheet_to_json(worksheet)
+
+      // 2. 字段清洗与规范化映射（兼容各种 Excel 表头格式）
+      const normalizedMembers = rawRows.map((row) => ({
+        name: String(
+          row['UPLOADED MEMBER'] ||
+          row['Uploaded Member'] ||
+          row['Name'] ||
+          row['name'] ||
+          ''
+        ).trim(),
+        nrc: String(
+          row['NRC / NATIONAL ID'] ||
+          row['NRC/NATIONAL ID'] ||
+          row['NRC'] ||
+          row['nrc'] ||
+          row['National ID'] ||
+          ''
+        ).trim(),
+        dob: String(
+          row['DOB'] ||
+          row['dob'] ||
+          row['Date of Birth'] ||
+          ''
+        ).trim(),
+        gender: String(
+          row['GENDER'] ||
+          row['Gender'] ||
+          row['gender'] ||
+          ''
+        ).trim(),
+      }))
+
+      // 过滤未包含名字的空行
+      const validMembers = normalizedMembers.filter((m) => m.name.length > 0)
+
+      if (validMembers.length === 0) {
+        setError('Invalid members data: No valid member names found in Excel.')
+        setLoading(false)
+        return
+      }
+
+      // 3. 发送强校验结构 JSON 到 API Route
+      const res = await fetch('/api/bulk-census', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ members: validMembers }),
       })
 
-      const firstSheetName = workbook.SheetNames[0]
+      const data = await res.json()
 
-      if (!firstSheetName) {
-        setError(
-          "The Excel file does not contain a worksheet."
-        )
-        return
+      if (res.ok) {
+        setResults(data.results)
+        setError(null)
+      } else {
+        setError(data.error || 'Failed to process bulk census')
       }
-
-      const worksheet =
-        workbook.Sheets[firstSheetName]
-
-      const rawRows =
-        XLSX.utils.sheet_to_json<Record<string, unknown>>(
-          worksheet,
-          {
-            defval: "",
-            raw: false,
-          }
-        )
-
-      if (rawRows.length === 0) {
-        setError(
-          "The Excel file does not contain any data."
-        )
-        return
-      }
-
-      const headers = Object.keys(rawRows[0])
-
-      const findHeader = (target: string) =>
-        headers.find(
-          (header) =>
-            header.trim().toLowerCase() ===
-            target.trim().toLowerCase()
-        )
-
-      const nameHeader =
-        findHeader("Name")
-
-      const nrcHeader =
-        findHeader("NRC / National ID")
-
-      const dobHeader =
-        findHeader("Date of Birth")
-
-      const genderHeader =
-        findHeader("Gender")
-
-      const missingHeaders: string[] = []
-
-      if (!nameHeader) {
-        missingHeaders.push("Name")
-      }
-
-      if (!nrcHeader) {
-        missingHeaders.push(
-          "NRC / National ID"
-        )
-      }
-
-      if (!dobHeader) {
-        missingHeaders.push(
-          "Date of Birth"
-        )
-      }
-
-      if (!genderHeader) {
-        missingHeaders.push("Gender")
-      }
-
-      if (missingHeaders.length > 0) {
-        setError(
-          `Missing required column(s): ${missingHeaders.join(", ")}`
-        )
-        return
-      }
-
-      const parsedRows: CensusRow[] =
-        rawRows.map((row) => ({
-          name: String(
-            row[nameHeader!] ?? ""
-          ).trim(),
-
-          nrc: String(
-            row[nrcHeader!] ?? ""
-          ).trim(),
-
-          dob: String(
-            row[dobHeader!] ?? ""
-          ).trim(),
-
-          gender: String(
-            row[genderHeader!] ?? ""
-          ).trim(),
-
-          status: "Pending",
-
-          claims: [],
-        }))
-
-      setRows(parsedRows)
-
-      /*
-       * Send the uploaded members to the server
-       * for matching against mcs_claims.
-       */
-      setSearching(true)
-
-      const response = await fetch(
-        "/api/bulk-census",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          body: JSON.stringify({
-            rows: parsedRows.map(
-              ({
-                name,
-                nrc,
-                dob,
-                gender,
-              }) => ({
-                name,
-                nrc,
-                dob,
-                gender,
-              })
-            ),
-          }),
-        }
-      )
-
-      const result =
-        await response.json()
-
-      if (!response.ok) {
-        setError(
-          result.error ??
-            "Unable to check census records."
-        )
-        return
-      }
-
-      setRows(result.results ?? [])
     } catch (err) {
-      console.error(err)
-
-      setError(
-        "Unable to read this file. Please upload a valid Excel file."
-      )
+      console.error('File processing error:', err)
+      setError('Failed to parse Excel file. Please ensure it is a valid .xlsx or .xls document.')
     } finally {
-      setSearching(false)
-      event.target.value = ""
+      setLoading(false)
     }
   }
 
   return (
-    <div className="mt-6">
-
-      {/* Upload / Download */}
-      <div className="flex flex-wrap gap-3">
-
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={downloadTemplate}
-        >
-          <Download size={18} />
-          Download Standardized Template
-        </button>
-
-        <button
-          type="button"
-          className="btn"
-          onClick={openFilePicker}
-        >
-          <Upload size={18} />
-          Upload Excel File
-        </button>
-
+    <div className="p-6 space-y-6">
+      {/* 文件上传区域 */}
+      <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Upload Insurer Census File (.xlsx)
+        </label>
         <input
-          ref={fileInputRef}
           type="file"
-          accept=".xlsx,.xls,.csv"
-          className="hidden"
-          onChange={handleFileChange}
+          accept=".xlsx, .xls"
+          onChange={handleFileUpload}
+          disabled={loading}
+          className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
         />
-
-      </div>
-
-
-      {/* Sample result */}
-      <div className="mt-8 rounded-3xl border border-line bg-white p-6">
-
-        <div className="flex flex-wrap items-center justify-between gap-4">
-
-          <div>
-            <h2 className="text-xl font-bold">
-              Sample bulk result
-            </h2>
-
-            <p className="mt-2 text-muted">
-              Click any member row to view census details and available historical claims.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={loadSampleResult}
-          >
-            Load sample result
-          </button>
-
-        </div>
-
-
-        {showSample && (
-          <div className="mt-6 overflow-x-auto">
-
-            <table className="w-full">
-
-              <thead>
-                <tr>
-                  <th>Uploaded Member</th>
-                  <th>NRC / National ID</th>
-                  <th>Date of Birth</th>
-                  <th>Gender</th>
-                  <th>Match Status</th>
-                  <th>Claim No</th>
-                </tr>
-              </thead>
-
-              <tbody>
-
-                {SAMPLE_ROWS.map(
-                  (row, index) => {
-
-                    const firstClaim =
-                      row.claims[0]
-
-                    return (
-                      <tr
-                        key={index}
-                        className="cursor-pointer hover:bg-blue-50"
-                        onClick={() =>
-                          setSelectedRow(row)
-                        }
-                      >
-
-                        <td>
-                          <div className="font-semibold">
-                            {row.name}
-                          </div>
-
-                          <button
-                            type="button"
-                            className="mt-1 text-sm font-semibold text-brand"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              setSelectedRow(row)
-                            }}
-                          >
-                            View details
-                          </button>
-                        </td>
-
-                        <td>
-                          {row.nrc || "—"}
-                        </td>
-
-                        <td>
-                          {row.dob || "—"}
-                        </td>
-
-                        <td>
-                          {row.gender || "—"}
-                        </td>
-
-                        <td>
-                          <span
-                            className={
-                              row.status === "Matched"
-                                ? "pill pill-green"
-                                : "pill pill-gray"
-                            }
-                          >
-                            {row.status}
-                          </span>
-                        </td>
-
-                        <td>
-                          {typeof firstClaim?.claim_no === "string"
-                            ? firstClaim.claim_no
-                            : "—"}
-                        </td>
-
-                      </tr>
-                    )
-                  }
-                )}
-
-              </tbody>
-
-            </table>
-
-          </div>
+        {fileName && (
+          <p className="mt-2 text-xs text-gray-600">
+            Uploaded file: <span className="font-semibold">{fileName}</span>
+          </p>
         )}
-
       </div>
 
-
-      {/* Uploaded file information */}
-      {fileName && (
-        <div className="mt-6 rounded-xl border border-line bg-blue-50 p-4">
-
-          <p className="font-semibold">
-            Uploaded file
-          </p>
-
-          <p className="text-muted">
-            {fileName}
-          </p>
-
-          <p className="mt-1 text-sm text-muted">
-            {rows.length} member(s) loaded
-          </p>
-
-          {searching && (
-            <p className="mt-2 text-sm font-semibold text-brand">
-              Checking historical claims...
-            </p>
-          )}
-
-        </div>
-      )}
-
-
-      {/* Error */}
+      {/* 错误提示框 */}
       {error && (
-        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
+        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
           {error}
         </div>
       )}
 
-
-      {/* Real uploaded result */}
-      {rows.length > 0 && !showSample && (
-        <div className="mt-6">
-
-          <h2 className="mb-3 text-xl font-bold">
-            Bulk Result
-          </h2>
-
-          <div className="overflow-x-auto">
-
-            <table className="w-full">
-
-              <thead>
-                <tr>
-                  <th>Uploaded Member</th>
-                  <th>NRC / National ID</th>
-                  <th>DOB</th>
-                  <th>Gender</th>
-                  <th>Match Status</th>
-                  <th>Claim No</th>
-                  <th>Claims</th>
-                </tr>
-              </thead>
-
-              <tbody>
-
-                {rows.map(
-                  (row, index) => {
-
-                    const firstClaim =
-                      row.claims?.[0]
-
-                    const claimNo =
-                      firstClaim &&
-                      typeof firstClaim.claim_no === "string"
-                        ? firstClaim.claim_no
-                        : "—"
-
-                    return (
-                      <tr
-                        key={index}
-                        className="cursor-pointer hover:bg-blue-50"
-                        onClick={() =>
-                          setSelectedRow(row)
-                        }
-                      >
-
-                        <td>
-                          <div className="font-semibold">
-                            {row.name || "—"}
-                          </div>
-
-                          <button
-                            type="button"
-                            className="mt-1 text-sm font-semibold text-brand"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              setSelectedRow(row)
-                            }}
-                          >
-                            View details
-                          </button>
-                        </td>
-
-                        <td>
-                          {row.nrc || "—"}
-                        </td>
-
-                        <td>
-                          {row.dob || "—"}
-                        </td>
-
-                        <td>
-                          {row.gender || "—"}
-                        </td>
-
-                        <td>
-                          <span
-                            className={
-                              row.status === "Matched"
-                                ? "pill pill-green"
-                                : "pill pill-gray"
-                            }
-                          >
-                            {row.status}
-                          </span>
-                        </td>
-
-                        <td>
-                          {claimNo}
-                        </td>
-
-                        <td>
-                          {row.claims?.length ?? 0}
-                        </td>
-
-                      </tr>
-                    )
-                  }
-                )}
-
-              </tbody>
-
-            </table>
-
-          </div>
-
+      {/* 批量结果表格 */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="p-4 border-b border-gray-200 font-bold text-gray-800">
+          Bulk Result
         </div>
-      )}
-
-
-      {/* Details panel */}
-      {selectedRow && (
-        <div className="mt-6 rounded-3xl border border-line bg-white p-6">
-
-          <div className="flex items-center justify-between">
-
-            <h2 className="text-xl font-bold">
-              Member Details
-            </h2>
-
-            <button
-              type="button"
-              className="rounded-full p-2 hover:bg-gray-100"
-              onClick={() =>
-                setSelectedRow(null)
-              }
-            >
-              <X size={20} />
-            </button>
-
-          </div>
-
-
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-
-            <div>
-              <p className="text-sm text-muted">
-                Uploaded Member
-              </p>
-
-              <p className="font-semibold">
-                {selectedRow.name || "—"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-sm text-muted">
-                NRC / National ID
-              </p>
-
-              <p className="font-semibold">
-                {selectedRow.nrc || "—"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-sm text-muted">
-                Date of Birth
-              </p>
-
-              <p className="font-semibold">
-                {selectedRow.dob || "—"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-sm text-muted">
-                Gender
-              </p>
-
-              <p className="font-semibold">
-                {selectedRow.gender || "—"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-sm text-muted">
-                Match Status
-              </p>
-
-              <span
-                className={
-                  selectedRow.status === "Matched"
-                    ? "pill pill-green"
-                    : "pill pill-gray"
-                }
-              >
-                {selectedRow.status}
-              </span>
-            </div>
-
-          </div>
-
-
-          {/* Matching claims */}
-          <div className="mt-8">
-
-            <h3 className="text-lg font-bold">
-              Historical Claims
-            </h3>
-
-            {selectedRow.claims?.length === 0 ? (
-
-              <div className="mt-3 rounded-xl border border-line bg-stone-50 p-4 text-muted">
-                No historical claims found.
-              </div>
-
+        <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
+            <tr>
+              <th className="px-4 py-3 text-left">Uploaded Member</th>
+              <th className="px-4 py-3 text-left">NRC / National ID</th>
+              <th className="px-4 py-3 text-left">DOB</th>
+              <th className="px-4 py-3 text-left">Gender</th>
+              <th className="px-4 py-3 text-left">Match Status</th>
+              <th className="px-4 py-3 text-left">Claim No</th>
+              <th className="px-4 py-3 text-left">Claims</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {loading ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-6 text-center text-gray-500">
+                  Processing census data...
+                </td>
+              </tr>
+            ) : results.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
+                  No data loaded. Please upload a census file.
+                </td>
+              </tr>
             ) : (
-
-              <div className="mt-3 grid gap-4">
-
-                {selectedRow.claims.map(
-                  (claim, index) => (
-
-                    <div
-                      key={index}
-                      className="rounded-xl border border-line bg-stone-50 p-4"
+              results.map((row, idx) => (
+                <tr key={idx} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 font-medium text-gray-900">
+                    {row.uploaded_member}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">{row.nrc}</td>
+                  <td className="px-4 py-3 text-gray-600">{row.dob}</td>
+                  <td className="px-4 py-3 text-gray-600">{row.gender}</td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                        row.matchStatus === 'Matched'
+                          ? 'bg-green-100 text-green-800'
+                          : row.matchStatus === 'No history'
+                          ? 'bg-gray-100 text-gray-600'
+                          : 'bg-yellow-100 text-yellow-800'
+                      }`}
                     >
-
-                      <div className="mb-3 flex items-center gap-2">
-
-                        <Search size={18} />
-
-                        <b>
-                          Claim Record {index + 1}
-                        </b>
-
-                      </div>
-
-
-                      <div className="grid gap-3 md:grid-cols-2">
-
-                        {Object.entries(
-                          claim
-                        ).map(
-                          ([key, value]) => (
-
-                            <div key={key}>
-
-                              <p className="text-xs uppercase text-muted">
-                                {key.replaceAll(
-                                  "_",
-                                  " "
-                                )}
-                              </p>
-
-                              <p className="font-semibold">
-                                {String(
-                                  value ?? "—"
-                                )}
-                              </p>
-
-                            </div>
-
-                          )
-                        )}
-
-                      </div>
-
-                    </div>
-
-                  )
-                )}
-
-              </div>
-
+                      {row.matchStatus}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">{row.claimNo}</td>
+                  <td className="px-4 py-3 text-gray-600">{row.claimsCount}</td>
+                </tr>
+              ))
             )}
-
-          </div>
-
-        </div>
-      )}
-
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
