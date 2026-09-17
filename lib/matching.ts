@@ -1,33 +1,46 @@
-import { Member } from './demo-data'
+// lib/matching.ts
 
-export type SearchInput = { fullName?:string; nrc?:string; dateOfBirth?:string; gender?:string; keyword?:string }
-
-export function normalizeName(v = '') { return v.trim().toLowerCase().replace(/\s+/g, ' ') }
-export function normalizeNrc(v = '') { return v.toLowerCase().replace(/[^a-z0-9]/g, '') }
-
-export function scoreMember(input: SearchInput, member: Member) {
-  let score = 0
-  const reasons: string[] = []
-  const nrc = normalizeNrc(input.nrc || '')
-  const name = normalizeName(input.fullName || '')
-  const keyword = normalizeName(input.keyword || '')
-  const keywordNrc = normalizeNrc(input.keyword || '')
-
-  if (nrc && member.normalized_nrc === nrc) { score += 100; reasons.push('NRC exact match') }
-  if (name) {
-    if (member.normalized_name === name) { score += 70; reasons.push('Name exact match') }
-    else if (member.normalized_name.includes(name) || name.includes(member.normalized_name)) { score += 45; reasons.push('Partial name match') }
-  }
-  if (keyword) {
-    if (member.normalized_name.includes(keyword)) { score += 45; reasons.push('Keyword name match') }
-    if (keywordNrc && member.normalized_nrc?.includes(keywordNrc)) { score += 60; reasons.push('Keyword NRC match') }
-  }
-  if (input.dateOfBirth && input.dateOfBirth === member.date_of_birth) { score += 35; reasons.push('Date of birth match') }
-  if (input.gender && input.gender === member.gender) { score += 15; reasons.push('Gender match') }
-  return { score, reasons }
+export interface CensusMember {
+  name: string
+  nrc?: string
+  dob?: string
+  gender?: string
 }
 
-export function findMemberMatches(input: SearchInput, members: Member[]) {
-  if (!input.fullName && !input.nrc && !input.dateOfBirth && !input.gender && !input.keyword) return []
-  return members.map(member => ({ member, ...scoreMember(input, member) })).filter(x => x.score >= 35).sort((a, b) => b.score - a.score)
+export interface ClaimRecord {
+  patient_name: string
+  nrc_no?: string
+  claim_no: string
+  // ... 其他字段
+}
+
+export function matchMemberWithClaims(member: CensusMember, claims: ClaimRecord[]) {
+  // 1. 数据清洗（转小写、去空格）
+  const inputName = member.name?.trim().toLowerCase() || ''
+  const inputNrc = member.nrc?.trim().toLowerCase() || ''
+
+  if (!inputName) {
+    return { isMatched: false, matchedClaims: [] }
+  }
+
+  // 2. 筛选匹配记录：必须满足【姓名全等】且【NRC全等】
+  const matchedClaims = claims.filter((claim) => {
+    const claimName = claim.patient_name?.trim().toLowerCase() || ''
+    const claimNrc = claim.nrc_no?.trim().toLowerCase() || ''
+
+    // 规则 A：如果输入了 NRC，则要求 [姓名全等] AND [NRC全等]
+    if (inputNrc && inputNrc !== '—' && inputNrc !== '') {
+      return claimName === inputName && claimNrc === inputNrc
+    }
+
+    // 规则 B：如果没填 NRC，仅允许 [姓名完全相等]（绝对禁止使用 includes 或 LIKE 模糊匹配）
+    return claimName === inputName
+  })
+
+  return {
+    isMatched: matchedClaims.length > 0,
+    matchedClaims,
+    claimsCount: matchedClaims.length,
+    claimNo: matchedClaims.length > 0 ? matchedClaims[0].claim_no : '—'
+  }
 }
