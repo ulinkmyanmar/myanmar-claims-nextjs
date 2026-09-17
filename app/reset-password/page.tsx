@@ -2,7 +2,7 @@
 import { Lock } from 'lucide-react'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { getSupabaseBrowserClient } from '@/lib/supabase' // ✅ 替换为正确的导出
 
 export default function ResetPasswordPage() {
   const router = useRouter()
@@ -18,6 +18,7 @@ export default function ResetPasswordPage() {
     setSubmitting(true)
 
     try {
+      const supabase = getSupabaseBrowserClient() // ✅ 调用实例
       const { error: updateErr } = await supabase.auth.updateUser({
         password: newPassword,
       })
