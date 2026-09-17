@@ -12,7 +12,6 @@ export function DatabaseManagementClient() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // 1. 处理文件选择与预览请求
   const handlePreview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) return;
@@ -32,7 +31,7 @@ export function DatabaseManagementClient() {
       const data = await res.json();
 
       if (res.ok) {
-        setPreviewData(data); // 仅存储预览数据，数据库尚未改变
+        setPreviewData(data);
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to parse file preview.' });
       }
@@ -43,7 +42,6 @@ export function DatabaseManagementClient() {
     }
   };
 
-  // 2. 处理确认同步请求（关键：同步完成后执行 router.refresh()）
   const handleConfirm = async () => {
     if (!previewData || !previewData.records) return;
 
@@ -67,7 +65,7 @@ export function DatabaseManagementClient() {
         setPreviewData(null);
         setFile(null);
 
-        // 核心步骤：触发页面重载与 Stats 数据自动更新
+        // 刷新页面数据，同步最新统计值
         router.refresh();
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to sync database.' });
@@ -91,7 +89,6 @@ export function DatabaseManagementClient() {
         </div>
       )}
 
-      {/* 文件上传与预览表单 */}
       <form onSubmit={handlePreview} className="space-y-4">
         <input
           type="file"
@@ -108,7 +105,6 @@ export function DatabaseManagementClient() {
         </button>
       </form>
 
-      {/* 预览结果与确认同步区域 */}
       {previewData && (
         <div className="space-y-4 border-t pt-4">
           <h3 className="font-bold text-lg">Data Preview</h3>
@@ -128,3 +124,6 @@ export function DatabaseManagementClient() {
     </div>
   );
 }
+
+// 解决 TS2613 报错的关键：同时导出 default
+export default DatabaseManagementClient;
