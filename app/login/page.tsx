@@ -2,7 +2,7 @@
 import { Lock, ShieldCheck } from 'lucide-react'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { getSupabaseBrowserClient } from '@/lib/supabase' // ✅ 替换为正确的导出
+import { getSupabaseBrowserClient } from '@/lib/supabase'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -59,7 +59,7 @@ export default function LoginPage() {
     }
   }
 
-  // 处理忘记密码逻辑
+  // 处理忘记密码逻辑（添加非空校验）
   async function handleForgotPassword() {
     if (!email) {
       setError('Please enter your email first.')
@@ -71,7 +71,12 @@ export default function LoginPage() {
     setResetting(true)
 
     try {
-      const supabase = getSupabaseBrowserClient() // ✅ 调用实例
+      const supabase = getSupabaseBrowserClient()
+      if (!supabase) {
+        setError('Supabase client failed to initialize.')
+        return
+      }
+
       const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/reset-password`,
       })
