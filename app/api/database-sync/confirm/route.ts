@@ -25,17 +25,16 @@ export async function POST(request: NextRequest) {
       // 步骤 A：根据 claim_no 进行内存去重，防止同批次数据冲突
       const uniqueRecordsMap = new Map();
 
-      records.forEach((rec: any) => {
-        const claimNo = String(
-          rec.claimNo || rec.claim_no || rec["Claim No"] || rec["Claim Number"] || ""
-        ).trim();
+        records.forEach((rec: any) => {
+        const claimNo = String(rec.claimNo || rec.claim_no || "").trim();
         if (claimNo) {
-          // 如果有重复的 claim_no，后面的会覆盖前面的，确保批次内唯一
           uniqueRecordsMap.set(claimNo, {
             claim_no: claimNo,
             client_name: rec.clientName || rec.client_name || "",
             date_of_birth: rec.dateOfBirth || rec.date_of_birth || null,
             gender: rec.gender || null,
+            incident_date: rec.incidentDate || rec.incident_date || null,
+            description: rec.description || null,
             createddatetime: currentISOTimestamp,
           });
         }
