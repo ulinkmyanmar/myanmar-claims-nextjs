@@ -4,27 +4,36 @@ import { matchMemberWithClaims } from '@/lib/matching'
 
 export async function POST(req: Request) {
   try {
-    const { members } = await req.json()
+    const body = await req.json()
+    
+    // 兼容多种前端传参格式：body 本身是数组、或者在 body.members / body.data 里面
+    const membersList = Array.isArray(body) 
+      ? body 
+      : (body.members || body.data || body.census || [])
 
-    if (!Array.isArray(members)) {
+    if (!Array.isArray(membersList) || membersList.length === 0) {
       return NextResponse.json({ error: 'Invalid members data' }, { status: 400 })
     }
 
-    // 循环调用统一的强校验匹配算法
-    const results = members.map((member) => {
-      const matchResult = matchMemberWithClaims(member, demoClaims)
+    // 循环调用 matchMemberWithClaims
+    const results = membersList.map((member: any) => {
+      const match = matchMemberWithClaims(member, demoClaims)
 
       return {
-        ...member,
-        matchStatus: matchResult.isMatched ? 'Matched' : 'No history',
-        claimNo: matchResult.claimNo,
-        claimsCount: matchResult.claimsCount,
-        matchedClaims: matchResult.matchedClaims,
+        name: member.name || member['UPLOADED MEMBER'] || member.uploaded_member || '—',
+        nrc: member.nrc || member['NRC / NATIONAL ID'] || member.nrc_no || '—',
+        dob: member.dob || member['DOB'] || '—',
+        gender: member.gender || member['GENDER'] || '—',
+        matchStatus: match.isMatched ? 'Matched' : 'No history',
+        claimNo: match.claimNo,
+        claimsCount: match.claimsCount,
+        matchedClaims: match.matchedClaims,
       }
     })
 
     return NextResponse.json({ results })
   } catch (error) {
+    console.error('Bulk Census Error:', error)
     return NextResponse.json({ error: 'Failed to process bulk census' }, { status: 500 })
   }
 }
