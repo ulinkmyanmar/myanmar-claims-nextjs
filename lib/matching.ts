@@ -1,50 +1,58 @@
 // lib/matching.ts
 
 export interface CensusMember {
-  name: string
-  nrc?: string
-  dob?: string
-  gender?: string
-}
-
-// 兼容驼峰 (demoClaims) 和 下划线 (Supabase DB) 两种属性结构
-export interface ClaimRecord {
-  patient_name?: string
-  name?: string
-  nrc_no?: string
-  nrc?: string
-  claim_no?: string
-  claimNo?: string
   [key: string]: any
 }
 
-export function matchMemberWithClaims(member: CensusMember, claims: ClaimRecord[]) {
-  const inputName = member.name?.trim().toLowerCase() || ''
-  const inputNrc = member.nrc?.trim().toLowerCase() || ''
+export interface ClaimRecord {
+  [key: string]: any
+}
 
+// 辅助函数：清洗字符串（转小写、去除首尾及内部多余空格）
+function cleanStr(val: any): string {
+  if (val === null || val === undefined) return ''
+  return String(val).trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+// 辅助函数：专门清洗 NRC（去除所有空格、连字符，只留纯文本）
+function cleanNrc(val: any): string {
+  if (!val) return ''
+  const str = String(val).trim().toLowerCase().replace(/[\s\-_]/g, '')
+  if (str === '—' || str === 'none' || str === 'null') return ''
+  return str
+}
+
+export function matchMemberWithClaims(member: CensusMember, claims: ClaimRecord[]) {
+  // 1. 动态获取 Member 的 Name 和 NRC（兼容 Name, name, member_name 等各种写法）
+  const rawName = member.name || member.Name || member.patient_name || member.patientName || member['Uploaded Member'] || ''
+  const rawNrc = member.nrc || member.Nrc || member.NRC || member.nrc_no || member['NRC / NATIONAL ID'] || ''
+
+  const inputName = cleanStr(rawName)
+  const inputNrc = cleanNrc(rawNrc)
+
+  // 如果连名字都没有，直接返回未匹配
   if (!inputName) {
-    return { isMatched: false, matchedClaims: [] }
+    return { isMatched: false, matchedClaims: [], claimsCount: 0, claimNo: '—' }
   }
 
+  // 2. 执行严格匹配
   const matchedClaims = claims.filter((claim) => {
-    // 兼容取值：优先取 patient_name，没有则取 name
-    const claimName = (claim.patient_name || claim.name || '').trim().toLowerCase()
-    // 兼容取值：优先取 nrc_no，没有则取 nrc
-    const claimNrc = (claim.nrc_no || claim.nrc || '').trim().toLowerCase()
+    // 动态获取 Claim 的 Name 和 NRC
+    const claimName = cleanStr(claim.patient_name || claim.name || claim.patientName || '')
+    const claimNrc = cleanNrc(claim.nrc_no || claim.nrc || claim.nrcNo || '')
 
-    // 规则 A：若输入了 NRC，必须 [姓名全等] 并且 [NRC全等]
-    if (inputNrc && inputNrc !== '—' && inputNrc !== '') {
+    // 规则 A：如果上传的记录中有有效的 NRC，必须【姓名完全一致】且【NRC完全一致】
+    if (inputNrc) {
       return claimName === inputName && claimNrc === inputNrc
     }
 
-    // 规则 B：若无 NRC，仅允许 [姓名完全相等]
+    // 规则 B：如果没有 NRC，仅要求【姓名完全一致】（防误触：John Tan2 不等于 John Tan）
     return claimName === inputName
   })
 
-  // 兼容获取理赔号
   const firstMatched = matchedClaims[0]
   const matchedClaimNo = firstMatched 
-    ? (firstMatched.claim_no || firstMatched.claimNo || '—') 
+    ? (firstMatched.claim_no || firstMatched.claimNo || firstMatched.claim_number || '—') 
     : '—'
 
   return {
