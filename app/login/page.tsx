@@ -2,7 +2,7 @@
 import { Lock, ShieldCheck } from 'lucide-react'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { getSupabaseBrowserClient } from '@/lib/supabase' // ✅ 替换为正确的导出
 
 export default function LoginPage() {
   const router = useRouter()
@@ -16,7 +16,7 @@ export default function LoginPage() {
   const [code, setCode] = useState('')
   const [factorId, setFactorId] = useState<string | null>(null)
 
-  // 新增：Reset Password 相关状态
+  // Reset Password 相关状态
   const [resetMessage, setResetMessage] = useState<string | null>(null)
   const [resetting, setResetting] = useState(false)
 
@@ -59,7 +59,7 @@ export default function LoginPage() {
     }
   }
 
-  // 新增：处理忘密码重置邮件的逻辑
+  // 处理忘记密码逻辑
   async function handleForgotPassword() {
     if (!email) {
       setError('Please enter your email first.')
@@ -71,6 +71,7 @@ export default function LoginPage() {
     setResetting(true)
 
     try {
+      const supabase = getSupabaseBrowserClient() // ✅ 调用实例
       const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/reset-password`,
       })
