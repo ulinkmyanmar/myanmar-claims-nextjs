@@ -3,12 +3,16 @@ import { createServerClient } from '@supabase/ssr'
 
 const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/mfa']
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const response = NextResponse.next({ request })
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  const isPublicPath = PUBLIC_PATHS.some((path) => request.nextUrl.pathname.startsWith(path))
+  const isPublicPath = PUBLIC_PATHS.some(
+    (path) =>
+      request.nextUrl.pathname === path ||
+      request.nextUrl.pathname.startsWith(`${path}/`)
+  )
 
   if (!url || !key) {
     if (!isPublicPath) return NextResponse.redirect(new URL('/login', request.url))
@@ -42,8 +46,16 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  if (user && isPublicPath && request.nextUrl.pathname === '/login') {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+  if (user && request.nextUrl.pathname === '/login') {
+    const { data: aal } =
+      await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+
+    if (
+      aal &&
+      !(aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2')
+    ) {
+      return NextResponse.redirect(new URL('/dashboard', request.url))
+    }
   }
 
   return response
