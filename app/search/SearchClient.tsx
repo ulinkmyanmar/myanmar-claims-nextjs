@@ -1,5 +1,6 @@
 'use client'
-import { Search, Info } from 'lucide-react'
+import { Search, Info, Download } from 'lucide-react'
+import { excelDateStamp, exportExcel } from '@/lib/excel-export'
 import { useEffect, useMemo, useState } from 'react'
 import { COVERAGE_DATE } from '@/lib/constants'
 
@@ -82,6 +83,29 @@ export default function SearchClient({ initialQuery }: { initialQuery?: string }
     if (name) params.set('name', name)
     if (nrc) params.set('nrc', nrc)
     runSearch(params)
+  }
+
+  function downloadResults() {
+    if (!claims?.length) return
+    const headers = [
+      'Claim No', 'Client Name', 'Passport / National ID', 'Contact No', 'Email',
+      'Claim Status', 'Claim Type', 'Incident Date', 'Incident Country', 'Description',
+    ]
+    const rows = claims.map((c) => ({
+      'Claim No': c.claim_no,
+      'Client Name': c.client_name,
+      'Passport / National ID': c.passport_no,
+      'Contact No': c.contact_no,
+      Email: c.email,
+      'Claim Status': c.claim_status,
+      'Claim Type': c.claim_type,
+      'Incident Date': c.incident_date,
+      'Incident Country': c.incident_country,
+      Description: c.description,
+    }))
+    exportExcel(`Myanmar_Claims_Search_${excelDateStamp()}.xlsx`, [
+      { name: 'Search Results', rows, headers },
+    ])
   }
 
   function clearAll() {
@@ -189,7 +213,12 @@ export default function SearchClient({ initialQuery }: { initialQuery?: string }
 
           {claims && (
             <div className="mt-8">
-              <h2 className="font-bold">Search Results</h2>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="font-bold">Search Results</h2>
+                <button type="button" className="btn-secondary" onClick={downloadResults} disabled={!claims.length || searching}>
+                  <Download size={18} /> Export to Excel
+                </button>
+              </div>
               {groups.length === 0 ? (
                 <div className="mt-4 rounded-2xl border border-line bg-stone-50 p-8 text-center">
                   <b>No matching claims history found</b>

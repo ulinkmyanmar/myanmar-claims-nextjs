@@ -3,6 +3,7 @@
 import { useRef, useState } from "react"
 import * as XLSX from "xlsx"
 import { Download, Upload, Search, X } from "lucide-react"
+import { excelDateStamp, exportExcel } from "@/lib/excel-export"
 
 type ClaimRecord = {
   [key: string]: unknown
@@ -67,6 +68,39 @@ export default function BulkCensusClient() {
   const [showSample, setShowSample] = useState(false)
   const [selectedRow, setSelectedRow] = useState<CensusRow | null>(null)
   const [searching, setSearching] = useState(false)
+
+  function downloadResults() {
+    if (searching || rows.length === 0 || rows.some((row) => row.status === "Pending")) return
+
+    const memberHeaders = [
+      "Uploaded Member", "NRC / National ID", "Date of Birth", "Gender",
+      "Match Status", "Historical Member ID", "Claims Count",
+    ]
+    const memberRows = rows.map((row) => ({
+      "Uploaded Member": row.name,
+      "NRC / National ID": row.nrc,
+      "Date of Birth": row.dob,
+      Gender: row.gender,
+      "Match Status": row.status,
+      "Historical Member ID": row.claims?.[0]?.historical_member_id ?? "",
+      "Claims Count": row.claims?.length ?? 0,
+    }))
+
+    const claimKeys = [...new Set(rows.flatMap((row) => (row.claims ?? []).flatMap((claim) => Object.keys(claim))))]
+    const claimHeaders = ["Uploaded Member", "NRC / National ID", ...claimKeys]
+    const claimRows = rows.flatMap((row) =>
+      (row.claims ?? []).map((claim) => ({
+        "Uploaded Member": row.name,
+        "NRC / National ID": row.nrc,
+        ...claim,
+      })),
+    )
+
+    exportExcel(`Myanmar_Bulk_Census_${excelDateStamp()}.xlsx`, [
+      { name: "Member Summary", rows: memberRows, headers: memberHeaders },
+      { name: "Historical Claims", rows: claimRows, headers: claimHeaders },
+    ])
+  }
 
   function downloadTemplate() {
     const data = [
@@ -321,7 +355,12 @@ export default function BulkCensusClient() {
       {/* Real uploaded result */}
       {rows.length > 0 && !showSample && (
         <div className="mt-6">
-          <h2 className="mb-3 text-xl font-bold">Bulk Result</h2>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-xl font-bold">Bulk Result</h2>
+            <button type="button" className="btn-secondary" onClick={downloadResults} disabled={searching || rows.some((row) => row.status === "Pending")}>
+              <Download size={18} /> Export to Excel
+            </button>
+          </div>
 
           <div className="overflow-x-auto">
             <table className="w-full">
