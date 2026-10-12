@@ -4,9 +4,6 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Upload,
   CheckCircle2,
-  FileSpreadsheet,
-  Archive,
-  GitCompare,
 } from 'lucide-react'
 
 import {
@@ -61,10 +58,10 @@ export default function DatabaseManagementClient() {
             updatedBy: item.updated_by || item.updatedBy || 'Admin Myanmar',
             updatedOn: item.createddatetime
               ? new Date(item.createddatetime).toLocaleDateString('en-GB', {
-                  day: '2-digit',
-                  month: 'short',
-                  year: 'numeric',
-                }).replace(/ /g, '-')
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+              }).replace(/ /g, '-')
               : 'Recently',
           }))
           setSyncHistory(formattedHistory)
@@ -278,9 +275,6 @@ export default function DatabaseManagementClient() {
       {/* Page heading */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="mb-3 inline-flex items-center rounded-full border border-line bg-white px-4 py-2 text-sm font-semibold text-muted">
-            Phase 3 preview
-          </div>
           <h1 className="text-4xl font-bold">
             Historical database synchronization
           </h1>
@@ -289,16 +283,6 @@ export default function DatabaseManagementClient() {
           </p>
         </div>
 
-        <div className="rounded-full border border-amber-300 bg-amber-50 px-5 py-3 font-semibold text-amber-800">
-          Admin only
-        </div>
-      </div>
-
-      {/* Recommended approach */}
-      <div className="rounded-2xl border border-amber-300 bg-amber-50 p-5">
-        <p className="leading-7 text-amber-900">
-          <strong>Recommended Phase 3 approach:</strong> Do not blindly delete the database and do not append every row without checking. Treat the latest full slim/indexed file as the authoritative snapshot, compare it with the active database, insert new records, update corrected records, keep unchanged records, block duplicates, and archive the previous version for rollback.
-        </p>
       </div>
 
       {/* Current snapshot */}
@@ -324,39 +308,11 @@ export default function DatabaseManagementClient() {
         </div>
       </div>
 
-      {/* Four steps */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StepCard
-          number="1"
-          icon={<FileSpreadsheet size={24} />}
-          title="Prepare full snapshot"
-          description="Download the latest approved raw claims and convert the complete history into the standard slim/indexed format."
-        />
-        <StepCard
-          number="2"
-          icon={<Upload size={24} />}
-          title="Upload to staging"
-          description="The new file is loaded into a temporary staging area first, without changing the active database."
-        />
-        <StepCard
-          number="3"
-          icon={<GitCompare size={24} />}
-          title="Compare and synchronize"
-          description="Insert new claims, update corrected records, retain unchanged rows, and prevent duplicate claims."
-        />
-        <StepCard
-          number="4"
-          icon={<Archive size={24} />}
-          title="Activate and archive"
-          description="Activate the synchronized snapshot only after validation and keep the previous version available for rollback."
-        />
-      </div>
-
       {/* Upload section */}
       <div className="card">
         <h2 className="text-2xl font-bold">Upload new full claims snapshot</h2>
         <p className="mt-2 text-muted">
-          Phase 3 workflow. The uploaded file should contain the complete historical snapshot, including the newest approved claims.
+          The uploaded file should contain the complete historical snapshot, including the newest approved claims.
         </p>
 
         {/* Upload box */}
@@ -510,26 +466,8 @@ export default function DatabaseManagementClient() {
             />
           </div>
 
-          <div className="mt-5 rounded-2xl border border-green-200 bg-green-50 p-5">
-            <p className="text-green-900">
-              <strong>Controlled sync:</strong> The active database changes only after confirmation. The previous snapshot is archived so the administrator can roll back if the new import is incomplete or incorrect.
-            </p>
-          </div>
         </div>
       )}
-
-      {/* Validation checklist */}
-      <div className="card">
-        <h2 className="text-2xl font-bold">Validation checklist</h2>
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
-          <CheckItem>Required columns</CheckItem>
-          <CheckItem>Total rows / unique members / unique claims</CheckItem>
-          <CheckItem>Duplicate claim numbers</CheckItem>
-          <CheckItem>Missing identifiers and invalid dates</CheckItem>
-          <CheckItem>Changed records</CheckItem>
-          <CheckItem>New records</CheckItem>
-        </div>
-      </div>
 
       {/* Synchronization history */}
       <div className="card">
@@ -588,43 +526,6 @@ function InfoCard({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border border-line bg-stone-50 p-5">
       <p className="text-sm uppercase text-muted">{label}</p>
       <p className="mt-2 font-bold">{value}</p>
-    </div>
-  )
-}
-
-function StepCard({
-  number,
-  icon,
-  title,
-  description,
-}: {
-  number: string
-  icon: React.ReactNode
-  title: string
-  description: string
-}) {
-  return (
-    <div className="card">
-      <div className="flex items-start justify-between">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-brand">
-          {icon}
-        </div>
-        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-lg font-bold text-brand">
-          {number}
-        </span>
-      </div>
-
-      <h3 className="mt-5 text-xl font-bold">{title}</h3>
-      <p className="mt-3 leading-7 text-muted">{description}</p>
-    </div>
-  )
-}
-
-function CheckItem({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-line bg-stone-50 p-4">
-      <CheckCircle2 size={20} className="shrink-0 text-green-600" />
-      <span className="font-medium">{children}</span>
     </div>
   )
 }

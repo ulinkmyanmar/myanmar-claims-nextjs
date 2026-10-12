@@ -18,54 +18,12 @@ type CensusRow = {
   claims: ClaimRecord[]
 }
 
-const SAMPLE_ROWS: CensusRow[] = [
-  {
-    name: "Yoon Thadar Htun",
-    nrc: "12/ABC(N)123456",
-    dob: "11-Jul-1918",
-    gender: "Female",
-    status: "Matched",
-    claims: [
-      {
-        id: "HM0000001",
-        claim_no: "SAMPLE-0001",
-        client_name: "Yoon Thadar Htun",
-        passport_no: "12/ABC(N)123456",
-      },
-    ],
-  },
-  {
-    name: "Thiri Mon",
-    nrc: "",
-    dob: "08-Feb-1997",
-    gender: "Female",
-    status: "No history",
-    claims: [],
-  },
-  {
-    name: "Aung Min Khant",
-    nrc: "9/MABANA(N)765432",
-    dob: "22-Mar-1987",
-    gender: "Male",
-    status: "Matched",
-    claims: [
-      {
-        id: "HM0000002",
-        claim_no: "SAMPLE-0002",
-        client_name: "Aung Min Khant",
-        passport_no: "9/MABANA(N)765432",
-      },
-    ],
-  },
-]
-
 export default function BulkCensusClient() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [rows, setRows] = useState<CensusRow[]>([])
   const [fileName, setFileName] = useState("")
   const [error, setError] = useState("")
-  const [showSample, setShowSample] = useState(false)
   const [selectedRow, setSelectedRow] = useState<CensusRow | null>(null)
   const [searching, setSearching] = useState(false)
 
@@ -120,14 +78,6 @@ export default function BulkCensusClient() {
     XLSX.writeFile(workbook, "Ulink_Myanmar_Census_Template.xlsx")
   }
 
-  function loadSampleResult() {
-    setError("")
-    setFileName("")
-    setSelectedRow(null)
-    setShowSample(true)
-    setRows(SAMPLE_ROWS)
-  }
-
   function openFilePicker() {
     fileInputRef.current?.click()
   }
@@ -140,7 +90,6 @@ export default function BulkCensusClient() {
     setError("")
     setRows([])
     setSelectedRow(null)
-    setShowSample(false)
     setFileName(file.name)
 
     try {
@@ -259,81 +208,6 @@ export default function BulkCensusClient() {
         />
       </div>
 
-      {/* Sample result */}
-      <div className="mt-8 rounded-3xl border border-line bg-white p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-bold">Sample bulk result</h2>
-            <p className="mt-2 text-muted">
-              Click any member row to view census details and available historical claims.
-            </p>
-          </div>
-
-          <button type="button" className="btn-secondary" onClick={loadSampleResult}>
-            Load sample result
-          </button>
-        </div>
-
-        {showSample && (
-          <div className="mt-6 overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr>
-                  <th>Uploaded Member</th>
-                  <th>NRC / National ID</th>
-                  <th>Date of Birth</th>
-                  <th>Gender</th>
-                  <th>Match Status</th>
-                  <th>Historical Member ID</th>
-                </tr>
-              </thead>
-              <tbody>
-                {SAMPLE_ROWS.map((row, index) => {
-                  const firstClaim = row.claims[0]
-
-                  return (
-                    <tr
-                      key={index}
-                      className="cursor-pointer hover:bg-blue-50"
-                      onClick={() => setSelectedRow(row)}
-                    >
-                      <td>
-                        <div className="font-semibold">{row.name}</div>
-                        <button
-                          type="button"
-                          className="mt-1 text-sm font-semibold text-brand"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            setSelectedRow(row)
-                          }}
-                        >
-                          View details
-                        </button>
-                      </td>
-                      <td>{row.nrc || "—"}</td>
-                      <td>{row.dob || "—"}</td>
-                      <td>{row.gender || "—"}</td>
-                      <td>
-                        <span
-                          className={row.status === "Matched" ? "pill pill-green" : "pill pill-gray"}
-                        >
-                          {row.status}
-                        </span>
-                      </td>
-                      <td>
-                        {typeof firstClaim?.id === "string" && firstClaim.id.startsWith("HM")
-                          ? firstClaim.id
-                          : "—"}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
       {/* Uploaded file information */}
       {fileName && (
         <div className="mt-6 rounded-xl border border-line bg-blue-50 p-4">
@@ -353,7 +227,7 @@ export default function BulkCensusClient() {
       )}
 
       {/* Real uploaded result */}
-      {rows.length > 0 && !showSample && (
+      {rows.length > 0 && (
         <div className="mt-6">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-xl font-bold">Bulk Result</h2>
