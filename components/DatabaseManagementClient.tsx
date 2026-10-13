@@ -23,6 +23,7 @@ export default function DatabaseManagementClient() {
   const [message, setMessage] = useState('')
   const [syncResult, setSyncResult] = useState<any>(null)
   const [comparisonFilter, setComparisonFilter] = useState('ALL')
+  const [selectedClaim, setSelectedClaim] = useState<any>(null)
 
   type SyncHistoryItem = {
     version: string
@@ -85,6 +86,7 @@ export default function DatabaseManagementClient() {
 
     setFileName(file.name)
     setSyncResult(null)
+    setSelectedClaim(null)
     setValidated(false)
     setPreview(false)
     setMessage('')
@@ -98,6 +100,7 @@ export default function DatabaseManagementClient() {
     setPreview(false)
     setMessage('')
     setSyncResult(null)
+    setSelectedClaim(null)
 
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
@@ -154,9 +157,11 @@ export default function DatabaseManagementClient() {
       }
 
       setSyncResult(result)
+      setSelectedClaim(null)
+      setComparisonFilter('ALL')
       setValidated(true)
       setPreview(true)
-      setMessage('Validation preview completed successfully. Ready for confirmation.')
+      setMessage('Validation preview completed. Review the changes below; synchronization is not enabled yet.')
     } catch (err: any) {
       console.error(err)
       setMessage(err.message || 'An error occurred during file parsing.')
@@ -417,7 +422,8 @@ export default function DatabaseManagementClient() {
           <button
             type="button"
             className="btn"
-            disabled={!validated}
+            disabled={true}
+            title="Disabled until the confirmation API has been secured and tested"
             onClick={confirmSync}
           >
             Confirm sync & activate
@@ -436,7 +442,7 @@ export default function DatabaseManagementClient() {
               </p>
             </div>
 
-            <span className="pill pill-green">Ready for confirmation</span>
+            <span className="pill pill-gray">Preview only</span>
           </div>
 
           <div className="mt-6 rounded-2xl border border-line bg-stone-50 p-5">
@@ -470,7 +476,7 @@ export default function DatabaseManagementClient() {
         </div>
       )}
 
-      {/* Read-only comparison table from the preview API response */}
+      {/* Read-only comparison table from the Part 1 preview API response */}
       {preview && Array.isArray(syncResult?.parsedRecords) && (
         <div className="card">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -512,6 +518,7 @@ export default function DatabaseManagementClient() {
                   <th className="p-3">Description</th>
                   <th className="p-3">Status</th>
                   <th className="p-3">Changed Fields</th>
+                  <th className="p-3">Details</th>
                 </tr>
               </thead>
               <tbody>
@@ -538,6 +545,11 @@ export default function DatabaseManagementClient() {
                           ? row._changedFields.join(', ')
                           : '—'
                       }</td>
+                      <td className="p-3">
+                        <button type="button" className="text-brand font-semibold underline" onClick={() => setSelectedClaim(row)}>
+                          View Details
+                        </button>
+                      </td>
                     </tr>
                   ))}
               </tbody>
@@ -547,6 +559,56 @@ export default function DatabaseManagementClient() {
             Comparison covers client name, date of birth, gender, incident date, and description only.
             Claim number is the record identifier. No data is changed by this preview.
           </p>
+        </div>
+      )}
+
+      {/* Compare old vs uploaded values; entirely read-only */}
+      {selectedClaim && (
+        <div className="card" role="region" aria-label="Claim comparison details">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold">Claim Details: {String(selectedClaim.claimNo ?? '—')}</h2>
+              <p className="mt-2 text-sm text-muted">Existing database values vs uploaded Excel. Only the five mapped fields are compared.</p>
+            </div>
+            <button type="button" className="btn-secondary" onClick={() => setSelectedClaim(null)}>Close</button>
+          </div>
+          {selectedClaim._status === 'DUPLICATE' && (
+            <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+              Duplicate claim number: this row is blocked. It may match multiple uploaded rows or existing database records.
+            </p>
+          )}
+          {!selectedClaim._existingValues && (
+            <p className="mt-4 text-muted">No unique existing database record is available for comparison.</p>
+          )}
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[650px] text-sm">
+              <thead><tr>
+                <th className="p-3 text-left">Field</th>
+                <th className="p-3 text-left">Existing Supabase</th>
+                <th className="p-3 text-left">Uploaded Excel</th>
+                <th className="p-3 text-left">Result</th>
+              </tr></thead>
+              <tbody>
+                {([
+                  ['client_name', 'Client Name', 'clientName'],
+                  ['date_of_birth', 'Date of Birth', 'dateOfBirth'],
+                  ['gender', 'Gender', 'gender'],
+                  ['incident_date', 'Incident Date', 'incidentDate'],
+                  ['description', 'Description / Diagnosis', 'description'],
+                ] as const).map(([field, label, key]) => {
+                  const changed = Array.isArray(selectedClaim._changedFields) && selectedClaim._changedFields.includes(field)
+                  return (
+                    <tr key={field} className={`border-t border-line ${changed ? 'bg-amber-50' : ''}`}>
+                      <td className="p-3 font-semibold">{label}</td>
+                      <td className="p-3 break-words">{selectedClaim._existingValues ? String(selectedClaim._existingValues[field] ?? '—') : '—'}</td>
+                      <td className="p-3 break-words">{String(selectedClaim[key] ?? '—')}</td>
+                      <td className="p-3">{selectedClaim._status === 'DUPLICATE' ? 'Review duplicate' : !selectedClaim._existingValues ? 'New record' : changed ? 'Changed' : 'Same'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

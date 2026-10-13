@@ -17,6 +17,7 @@ type PreviewRecord = ClaimFields & {
   memberId: string;
   _status: ClaimStatus;
   _changedFields: string[];
+  _existingValues?: Record<string, unknown> | null;
 };
 
 const MONTHS: Record<string, string> = {
@@ -150,6 +151,13 @@ export async function POST(request: Request) {
       } else {
         const old = existing.get(row.claimNo);
         if (old) {
+          row._existingValues = {
+            client_name: old.client_name ?? null,
+            date_of_birth: dateValue(old.date_of_birth),
+            gender: old.gender ?? null,
+            incident_date: dateValue(old.incident_date),
+            description: old.description ?? null,
+          };
           row._changedFields = changedFields(row, old);
           row._status = row._changedFields.length ? "EXISTING_UPDATE" : "UNCHANGED";
         }

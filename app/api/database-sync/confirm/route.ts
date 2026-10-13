@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       // 步骤 A：根据 claim_no 进行内存去重，防止同批次数据冲突
       const uniqueRecordsMap = new Map();
 
-        records.forEach((rec: any) => {
+      records.forEach((rec: any) => {
         const claimNo = String(rec.claimNo || rec.claim_no || "").trim();
         if (claimNo) {
           uniqueRecordsMap.set(claimNo, {
@@ -104,3 +104,19 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+
+
+/*
+import { NextResponse } from "next/server";
+
+// Intentionally disabled pending server-side role authorization, atomic
+// synchronization, and audit logging. Do not accept client-classified changes.
+export async function POST() {
+  return NextResponse.json(
+    { error: "Synchronization is temporarily disabled while the safe confirmation workflow is being implemented. Preview remains available." },
+    { status: 503 },
+  );
+}
+
+*/
