@@ -1,149 +1,173 @@
-// app/api/database-sync/preview/route.ts
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
+
+type ClaimFields = {
+  claimNo: string;
+  clientName: string;
+  dateOfBirth: string | null;
+  gender: string;
+  incidentDate: string | null;
+  description: string;
+};
+
+type ClaimStatus = "NEW_RECORD" | "EXISTING_UPDATE" | "UNCHANGED" | "DUPLICATE";
+
+type PreviewRecord = ClaimFields & {
+  memberId: string;
+  _status: ClaimStatus;
+  _changedFields: string[];
+};
 
 const MONTHS: Record<string, string> = {
   jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
   jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
 };
 
-// 把 "17-Nov-2023" 这种格式转成标准的 "2023-11-17"
-function parseDMYDate(value: any): string | null {
-  if (!value) return null;
-  const str = String(value).trim();
-  const match = str.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
-  if (match) {
-    const [, day, mon, year] = match;
-    const month = MONTHS[mon.toLowerCase()];
-    if (month) return `${year}-${month}-${day.padStart(2, "0")}`;
+function dateValue(value: unknown): string | null {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
   }
-  const parsed = new Date(str);
-  if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
-  return null;
+  if (typeof value === "number") {
+    const d = XLSX.SSF.parse_date_code(value);
+    if (!d) return null;
+    return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
+  }
+  const text = String(value).trim();
+  const iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:T|\s|$)/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  const dmy = text.match(/^(\d{1,2})[-/ ]([A-Za-z]{3})[-/ ](\d{4})$/);
+  if (dmy && MONTHS[dmy[2].toLowerCase()]) {
+    return `${dmy[3]}-${MONTHS[dmy[2].toLowerCase()]}-${dmy[1].padStart(2, "0")}`;
+  }
+  return null; // Unrecognized dates must not silently be treated as a valid different date.
 }
 
-// 把 "All Claim History" 这一整段文字拆解成一条一条独立的理赔记录
-// 格式示例："1. Claim Number: 2311170001 | Incurred Date: 17-Nov-2023 | Discharge Date: 17-Nov-2023 | Diagnosis: R50.9 - Fever, unspecified"
-function parseClaimHistory(historyText: any): Array<{
-  claimNo: string;
-  incurredDate: string | null;
-  diagnosis: string;
-}> {
-  if (!historyText) return [];
+function textValue(value: unknown): string {
+  return String(value ?? "").trim().replace(/\s+/g, " ");
+}
 
-  const lines = String(historyText)
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  const claims: Array<{ claimNo: string; incurredDate: string | null; diagnosis: string }> = [];
-
-  for (const line of lines) {
-    const withoutIndex = line.replace(/^\d+\.\s*/, "");
-    const parts = withoutIndex.split("|").map((p) => p.trim());
+function parseHistory(value: unknown): { claimNo: string; incidentDate: string | null; description: string }[] {
+  if (!value) return [];
+  const result: { claimNo: string; incidentDate: string | null; description: string }[] = [];
+  for (const line of String(value).split(/\r?\n/)) {
+    const parts = line.trim().replace(/^\d+\.\s*/, "").split("|");
     const fields: Record<string, string> = {};
-
     for (const part of parts) {
-      const sepIndex = part.indexOf(":");
-      if (sepIndex === -1) continue;
-      const key = part.slice(0, sepIndex).trim().toLowerCase();
-      const value = part.slice(sepIndex + 1).trim();
-      fields[key] = value;
+      const pos = part.indexOf(":");
+      if (pos >= 0) fields[part.slice(0, pos).trim().toLowerCase()] = part.slice(pos + 1).trim();
     }
-
-    if (fields["claim number"]) {
-      claims.push({
-        claimNo: fields["claim number"],
-        incurredDate: parseDMYDate(fields["incurred date"]),
-        diagnosis: fields["diagnosis"] || "",
-      });
-    }
+    const claimNo = textValue(fields["claim number"]);
+    if (claimNo) result.push({
+      claimNo,
+      incidentDate: dateValue(fields["incurred date"]),
+      description: textValue(fields["diagnosis"]),
+    });
   }
-
-  return claims;
+  return result;
 }
 
-export async function POST(req: Request) {
+function changedFields(uploaded: ClaimFields, existing: Record<string, unknown>): string[] {
+  const checks: [string, string, string | null, unknown][] = [
+    ["client_name", "text", uploaded.clientName, existing.client_name],
+    ["date_of_birth", "date", uploaded.dateOfBirth, existing.date_of_birth],
+    ["gender", "text", uploaded.gender, existing.gender],
+    ["incident_date", "date", uploaded.incidentDate, existing.incident_date],
+    ["description", "text", uploaded.description, existing.description],
+  ];
+  return checks.filter(([, type, incoming, old]) =>
+    type === "date"
+      ? incoming !== dateValue(old)
+      : textValue(incoming).toLowerCase() !== textValue(old).toLowerCase()
+  ).map(([field]) => field);
+}
+
+export async function POST(request: Request) {
   try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File;
-
-    if (!file) {
-      return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
-    }
-
-    const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer);
-
-    const sheetName = workbook.SheetNames.includes("Member Index")
-      ? "Member Index"
-      : workbook.SheetNames[0];
-
-    const sheet = workbook.Sheets[sheetName];
-    if (!sheet) {
-      return NextResponse.json({ error: "No readable sheet found in Excel" }, { status: 400 });
-    }
-
-    // 这里每一行是一个"会员"，不是一条"理赔"
-    const memberRows = XLSX.utils.sheet_to_json<any>(sheet);
-
     const supabase = await getSupabaseServerClient();
-    let existingClaimNos = new Set<string>();
+    if (!supabase) return NextResponse.json({ error: "Supabase is not configured." }, { status: 500 });
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
-    if (supabase) {
-      const { data } = await supabase
+    const form = await request.formData();
+    const file = form.get("file");
+    if (!(file instanceof File)) return NextResponse.json({ error: "No file uploaded." }, { status: 400 });
+
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const sheetName = workbook.SheetNames.includes("Member Index") ? "Member Index" : workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) return NextResponse.json({ error: "No readable worksheet found." }, { status: 400 });
+    const memberRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+    if (!memberRows.length) return NextResponse.json({ error: "The worksheet is empty." }, { status: 400 });
+    const required = ["All Claim History", "Preferred Full Name", "Normalized Name"];
+    const headers = Object.keys(memberRows[0]);
+    if (!headers.includes(required[0]) || (!headers.includes(required[1]) && !headers.includes(required[2]))) {
+      return NextResponse.json({ error: "Expected a Member Index sheet with All Claim History and a member name column." }, { status: 400 });
+    }
+
+    // Read the full existing claims set in pages; Supabase often caps a single response.
+    const existing = new Map<string, Record<string, unknown>>();
+    const duplicateDbClaims = new Set<string>();
+    const pageSize = 500;
+    for (let start = 0; ; start += pageSize) {
+      const { data, error } = await supabase
         .schema("MyanmarClaimSystem")
         .from("mcs_claims")
-        .select("claim_no");
-      existingClaimNos = new Set((data || []).map((r: any) => String(r.claim_no)));
+        .select("claim_no,client_name,date_of_birth,gender,incident_date,description")
+        .order("id", { ascending: true })
+        .range(start, start + pageSize - 1);
+      if (error) throw new Error(`Could not read existing claims: ${error.message}`);
+      const page = data ?? [];
+      for (const row of page) {
+        const claimNo = textValue(row.claim_no);
+        if (!claimNo) continue;
+        if (existing.has(claimNo)) duplicateDbClaims.add(claimNo);
+        else existing.set(claimNo, row);
+      }
+      if (page.length < pageSize) break;
     }
 
-    let newRecordsCount = 0;
-    let updatedRecordsCount = 0;
+    const parsedRecords: PreviewRecord[] = [];
+    for (const member of memberRows) {
+      const base = {
+        memberId: textValue(member["Historical Member ID"]),
+        clientName: textValue(member["Preferred Full Name"] || member["Normalized Name"]),
+        dateOfBirth: dateValue(member["Date of Birth"]),
+        gender: textValue(member["Gender"]),
+      };
+      for (const claim of parseHistory(member["All Claim History"])) {
+        parsedRecords.push({ ...base, ...claim, _status: "NEW_RECORD", _changedFields: [] });
+      }
+    }
+    if (!parsedRecords.length) return NextResponse.json({ error: "No claim records were found in All Claim History." }, { status: 400 });
 
-    // 把"会员行"拆解成"理赔行"，一个会员可能拆出多条
-    const parsedRecords: any[] = [];
-
-    for (const memberRow of memberRows) {
-      const memberId = memberRow["Historical Member ID"] || "";
-      const clientName = memberRow["Preferred Full Name"] || memberRow["Normalized Name"] || "";
-      const dateOfBirth = parseDMYDate(memberRow["Date of Birth"]);
-      const gender = memberRow["Gender"] || "";
-
-      const claims = parseClaimHistory(memberRow["All Claim History"]);
-
-      for (const claim of claims) {
-        const isExist = existingClaimNos.has(claim.claimNo);
-
-        parsedRecords.push({
-          memberId,
-          clientName,
-          dateOfBirth,
-          gender,
-          claimNo: claim.claimNo,
-          incidentDate: claim.incurredDate,
-          description: claim.diagnosis,
-          _status: isExist ? "EXISTING_UPDATE" : "NEW_RECORD",
-        });
-
-        if (isExist) updatedRecordsCount++;
-        else newRecordsCount++;
+    const uploadedCounts = new Map<string, number>();
+    for (const row of parsedRecords) uploadedCounts.set(row.claimNo, (uploadedCounts.get(row.claimNo) ?? 0) + 1);
+    for (const row of parsedRecords) {
+      if ((uploadedCounts.get(row.claimNo) ?? 0) > 1 || duplicateDbClaims.has(row.claimNo)) {
+        row._status = "DUPLICATE";
+      } else {
+        const old = existing.get(row.claimNo);
+        if (old) {
+          row._changedFields = changedFields(row, old);
+          row._status = row._changedFields.length ? "EXISTING_UPDATE" : "UNCHANGED";
+        }
       }
     }
 
     return NextResponse.json({
       success: true,
       totalRows: parsedRecords.length,
-      existingRecords: existingClaimNos.size,
-      newRecords: newRecordsCount,
-      updatedRecords: updatedRecordsCount,
-      unchangedRecords: 0,
-      duplicates: 0,
+      existingRecords: existing.size,
+      newRecords: parsedRecords.filter((r) => r._status === "NEW_RECORD").length,
+      updatedRecords: parsedRecords.filter((r) => r._status === "EXISTING_UPDATE").length,
+      unchangedRecords: parsedRecords.filter((r) => r._status === "UNCHANGED").length,
+      duplicates: parsedRecords.filter((r) => r._status === "DUPLICATE").length,
       parsedRecords,
     });
-  } catch (error: any) {
-    console.error("Preview Parsing Error:", error);
-    return NextResponse.json({ error: error.message || "Failed to process file" }, { status: 500 });
+  } catch (error) {
+    console.error("Synchronization preview failed", error);
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to preview the uploaded file." }, { status: 500 });
   }
 }
