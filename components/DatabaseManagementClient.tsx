@@ -22,6 +22,7 @@ export default function DatabaseManagementClient() {
   const [preview, setPreview] = useState(false)
   const [message, setMessage] = useState('')
   const [syncResult, setSyncResult] = useState<any>(null)
+  const [comparisonFilter, setComparisonFilter] = useState('ALL')
 
   type SyncHistoryItem = {
     version: string
@@ -466,6 +467,86 @@ export default function DatabaseManagementClient() {
             />
           </div>
 
+        </div>
+      )}
+
+      {/* Read-only comparison table from the preview API response */}
+      {preview && Array.isArray(syncResult?.parsedRecords) && (
+        <div className="card">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-bold">Claim comparison preview</h2>
+              <p className="mt-2 text-muted">
+                Review uploaded claims before synchronization. This table does not modify the database.
+              </p>
+            </div>
+            <label className="flex items-center gap-2 text-sm font-semibold">
+              Status
+              <select
+                className="rounded-xl border border-line bg-white px-3 py-2"
+                value={comparisonFilter}
+                onChange={(event) => setComparisonFilter(event.target.value)}
+              >
+                <option value="ALL">All</option>
+                <option value="NEW_RECORD">New</option>
+                <option value="EXISTING_UPDATE">Updated</option>
+                <option value="UNCHANGED">Unchanged</option>
+                <option value="DUPLICATE">Duplicate</option>
+              </select>
+            </label>
+          </div>
+          <p className="mt-3 text-sm text-muted">
+            {syncResult.parsedRecords.filter((row: any) =>
+              comparisonFilter === 'ALL' || row._status === comparisonFilter
+            ).length} of {syncResult.parsedRecords.length} uploaded rows shown
+          </p>
+          <div className="mt-4 max-h-[560px] overflow-auto rounded-xl border border-line">
+            <table className="w-full min-w-[1160px] text-left text-sm">
+              <thead className="sticky top-0 bg-stone-50">
+                <tr>
+                  <th className="p-3">Claim No</th>
+                  <th className="p-3">Client Name</th>
+                  <th className="p-3">DOB</th>
+                  <th className="p-3">Gender</th>
+                  <th className="p-3">Incident Date</th>
+                  <th className="p-3">Description</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">Changed Fields</th>
+                </tr>
+              </thead>
+              <tbody>
+                {syncResult.parsedRecords
+                  .filter((row: any) => comparisonFilter === 'ALL' || row._status === comparisonFilter)
+                  .map((row: any, index: number) => (
+                    <tr key={`${row.claimNo ?? 'unknown'}-${index}`} className="border-t border-line align-top">
+                      <td className="p-3 font-semibold">{String(row.claimNo ?? '—')}</td>
+                      <td className="p-3">{String(row.clientName ?? '—')}</td>
+                      <td className="p-3">{String(row.dateOfBirth ?? '—')}</td>
+                      <td className="p-3">{String(row.gender ?? '—')}</td>
+                      <td className="p-3">{String(row.incidentDate ?? '—')}</td>
+                      <td className="max-w-[280px] p-3 break-words">{String(row.description ?? '—')}</td>
+                      <td className="p-3 font-semibold">{
+                        ({
+                          NEW_RECORD: 'New',
+                          EXISTING_UPDATE: 'Updated',
+                          UNCHANGED: 'Unchanged',
+                          DUPLICATE: 'Duplicate',
+                        } as Record<string, string>)[row._status] ?? String(row._status ?? '—')
+                      }</td>
+                      <td className="p-3">{
+                        Array.isArray(row._changedFields) && row._changedFields.length > 0
+                          ? row._changedFields.join(', ')
+                          : '—'
+                      }</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-sm text-muted">
+            Comparison covers client name, date of birth, gender, incident date, and description only.
+            Claim number is the record identifier. No data is changed by this preview.
+          </p>
         </div>
       )}
 
