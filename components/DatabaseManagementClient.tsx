@@ -161,7 +161,7 @@ export default function DatabaseManagementClient() {
       setComparisonFilter('ALL')
       setValidated(true)
       setPreview(true)
-      setMessage('Validation preview completed. Review the changes below; synchronization is not enabled yet.')
+      setMessage('Preview validated successfully. Review the comparison below before confirming synchronization.')
     } catch (err: any) {
       console.error(err)
       setMessage(err.message || 'An error occurred during file parsing.')
@@ -185,20 +185,18 @@ export default function DatabaseManagementClient() {
     try {
       setMessage('Synchronizing data to live database...')
 
-      // 数据清洗与字段 Mapping，避免包含空格的复杂 key 破坏服务端 JSON 格式
-      // 只提交真正的新增记录，避免重复插入已存在的记录；
-      // Claim No 列名做多种兼容匹配，防止表头写法不一致导致静默丢失数据
-      const safeRecords = (syncResult.parsedRecords || [])
-        .filter((row: any) => row["_status"] === "NEW_RECORD")
-        .map((row: any) => ({
-          memberId: row.memberId || "",
-          clientName: row.clientName || "",
-          dateOfBirth: row.dateOfBirth || null,
-          gender: row.gender || null,
-          claimNo: row.claimNo || "",
-          incidentDate: row.incidentDate || null,
-          description: row.description || "",
-        }))
+      // Submit the complete preview so the server can independently verify
+      // unchanged rows, stale values, and duplicates before any write.
+      const safeRecords = (syncResult.parsedRecords || []).map((row: any) => ({
+        claimNo: String(row.claimNo ?? ''),
+        clientName: String(row.clientName ?? ''),
+        dateOfBirth: row.dateOfBirth ?? null,
+        gender: String(row.gender ?? ''),
+        incidentDate: row.incidentDate ?? null,
+        description: String(row.description ?? ''),
+        _status: row._status,
+        _existingValues: row._existingValues,
+      }))
 
       const response = await fetch('/api/database-sync/confirm', {
         method: 'POST',
@@ -268,7 +266,7 @@ export default function DatabaseManagementClient() {
       setValidated(false)
       setPreview(false)
       setMessage(
-        `Synchronization confirmed! Submitted ${resData.submittedCount ?? safeRecords.length} record(s), actually inserted ${resData.insertedCount ?? 0} new claim(s) into the database.`
+        `Synchronization complete: ${resData.insertedCount ?? 0} inserted, ${resData.updatedCount ?? 0} updated, ${resData.unchangedCount ?? 0} unchanged.`
       )
     } catch (err: any) {
       console.error(err)
@@ -370,7 +368,7 @@ export default function DatabaseManagementClient() {
             <input
               type="text"
               value={version}
-              onChange={(event) => setVersion(event.target.value)}
+              onChange={(event) => { setVersion(event.target.value); setValidated(false); setPreview(false); setSyncResult(null) }}
               placeholder="e.g., Claims History 2022–Dec 2026"
               className="w-full rounded-xl border border-line bg-white px-4 py-4 outline-none focus:border-blue-500"
             />
@@ -383,7 +381,7 @@ export default function DatabaseManagementClient() {
             <input
               type="date"
               value={coverageDate}
-              onChange={(event) => setCoverageDate(event.target.value)}
+              onChange={(event) => { setCoverageDate(event.target.value); setValidated(false); setPreview(false); setSyncResult(null) }}
               className="w-full rounded-xl border border-line bg-white px-4 py-4 outline-none focus:border-blue-500"
             />
           </div>
@@ -393,12 +391,12 @@ export default function DatabaseManagementClient() {
         {message && (
           <div
             className={
-              message.toLowerCase().includes('success') || message.toLowerCase().includes('completed')
+              message.toLowerCase().includes('success') || message.toLowerCase().includes('completed') || message.toLowerCase().includes('synchronization complete')
                 ? 'mt-5 rounded-xl border border-green-200 bg-green-50 p-4 text-green-800'
                 : 'mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800'
             }
           >
-            {message.toLowerCase().includes('success') || message.toLowerCase().includes('completed') ? (
+            {message.toLowerCase().includes('success') || message.toLowerCase().includes('completed') || message.toLowerCase().includes('synchronization complete') ? (
               <CheckCircle2 className="mr-2 inline" size={18} />
             ) : null}
             {message}
@@ -421,14 +419,31 @@ export default function DatabaseManagementClient() {
 
           <button
             type="button"
-            className="btn"
-            disabled={true}
-            title="Disabled until the confirmation API has been secured and tested"
+            className="btn disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={
+              process.env.NEXT_PUBLIC_ENABLE_CLAIMS_SYNC !== 'true' ||
+              !validated ||
+              (syncResult?.duplicates ?? 0) > 0 ||
+              ((syncResult?.newRecords ?? 0) + (syncResult?.updatedRecords ?? 0) === 0)
+            }
             onClick={confirmSync}
           >
             Confirm sync & activate
           </button>
         </div>
+        {preview && (
+          <p className="mt-3 text-right text-sm text-amber-800" role="status">
+            {process.env.NEXT_PUBLIC_ENABLE_CLAIMS_SYNC !== 'true'
+              ? 'Confirmation is disabled by the frontend safety switch. Set NEXT_PUBLIC_ENABLE_CLAIMS_SYNC=true in .env.local for local testing, then restart Next.js.'
+              : (syncResult?.duplicates ?? 0) > 0
+                ? `Confirmation blocked: ${syncResult.duplicates} duplicate uploaded claims. Filter the comparison table by Duplicate and resolve these rows in Excel, then upload and validate again.`
+                : ((syncResult?.newRecords ?? 0) + (syncResult?.updatedRecords ?? 0) === 0)
+                  ? 'Nothing to synchronize: no new or changed claims.'
+                  : !validated
+                    ? 'Validate and preview the uploaded snapshot first.'
+                    : 'Ready for confirmation. Review the preview before proceeding.'}
+          </p>
+        )}
       </div>
 
       {/* Synchronization preview */}

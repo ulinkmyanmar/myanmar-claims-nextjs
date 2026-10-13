@@ -1,122 +1,75 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import { createClient } from '@supabase/supabase-js'
+import { getCurrentUserProfile, getSupabaseServerClient } from '@/lib/supabase-server'
 
-export async function POST(request: NextRequest) {
-  try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-    const supabase = createClient(supabaseUrl, supabaseKey);
+const recordSchema = z.object({
+  claimNo: z.string().trim().min(1),
+  clientName: z.string(),
+  dateOfBirth: z.string().nullable(),
+  gender: z.string(),
+  incidentDate: z.string().nullable(),
+  description: z.string(),
+  _status: z.enum(['NEW_RECORD', 'EXISTING_UPDATE', 'UNCHANGED', 'DUPLICATE']),
+  _existingValues: z.object({
+    client_name: z.unknown(), date_of_birth: z.unknown(), gender: z.unknown(),
+    incident_date: z.unknown(), description: z.unknown(),
+  }).optional(),
+})
+const requestSchema = z.object({
+  version: z.string().trim().min(1).max(200),
+  coverageDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  records: z.array(recordSchema).min(1).max(10000),
+})
 
-    const body = await request.json();
-    const { version, coverageDate, records } = body;
-
-    if (!version || !coverageDate) {
-      return NextResponse.json(
-        { error: "Snapshot version and coverage date are required." },
-        { status: 400 }
-      );
-    }
-
-    const currentISOTimestamp = new Date().toISOString();
-    let formattedRecords: any[] = [];
-
-    // 1. 如果存在待同步的记录，先去重再写入 mcs_claims
-    if (Array.isArray(records) && records.length > 0) {
-      // 步骤 A：根据 claim_no 进行内存去重，防止同批次数据冲突
-      const uniqueRecordsMap = new Map();
-
-      records.forEach((rec: any) => {
-        const claimNo = String(rec.claimNo || rec.claim_no || "").trim();
-        if (claimNo) {
-          uniqueRecordsMap.set(claimNo, {
-            claim_no: claimNo,
-            client_name: rec.clientName || rec.client_name || "",
-            date_of_birth: rec.dateOfBirth || rec.date_of_birth || null,
-            gender: rec.gender || null,
-            incident_date: rec.incidentDate || rec.incident_date || null,
-            description: rec.description || null,
-            claim_status: "Active",
-            claim_type: "Historical Import",
-            createddatetime: currentISOTimestamp,
-          });
-        }
-      });
-
-      formattedRecords = Array.from(uniqueRecordsMap.values());
-
-      // 步骤 B：执行去重后的常规 insert 插入数据
-      if (formattedRecords.length > 0) {
-        const { error: claimsError } = await supabase
-          .schema("MyanmarClaimSystem")
-          .from("mcs_claims")
-          .insert(formattedRecords);
-
-        if (claimsError) {
-          console.error("Insert claims error detail:", claimsError);
-          return NextResponse.json(
-            { error: `Database error: ${claimsError.message}` },
-            { status: 500 }
-          );
-        }
-      }
-    }
-
-    // 2. 将旧的 Active 状态记录更新为 Archived
-    await supabase
-      .schema("MyanmarClaimSystem")
-      .from("mcs_database_sync_history")
-      .update({ status: "Archived" })
-      .eq("status", "Active");
-
-    // 3. 插入最新的同步历史记录（带上当前精准 ISO 时间戳）
-    const { error: historyError } = await supabase
-      .schema("MyanmarClaimSystem")
-      .from("mcs_database_sync_history")
-      .insert({
-        version: version.trim(),
-        coverage_date: coverageDate,
-        status: "Active",
-        method: "Controlled sync / upsert",
-        updated_by: "Admin Myanmar",
-        createddatetime: currentISOTimestamp,
-      });
-
-    if (historyError) {
-      console.error("Insert history error:", historyError);
-      return NextResponse.json(
-        { error: `Failed to write sync history: ${historyError.message}` },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: "Database synchronized successfully.",
-      submittedCount: records?.length || 0,
-      insertedCount: formattedRecords.length,
-      timestamp: currentISOTimestamp,
-    });
-  } catch (error: any) {
-    console.error("Confirm sync server error:", error);
-    return NextResponse.json(
-      { error: error.message || "Internal server error during confirmation." },
-      { status: 500 }
-    );
+export async function POST(request: Request) {
+  // Keep writes disabled until SQL migration, authorization and staging tests are verified.
+  if (process.env.ENABLE_CLAIMS_SYNC !== 'true') {
+    return NextResponse.json({ error: 'Claims synchronization is not enabled in this environment.' }, { status: 503 })
   }
+
+  const profile = await getCurrentUserProfile()
+  if (!profile) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
+  if (String(profile.role).toLowerCase() !== 'admin') {
+    return NextResponse.json({ error: 'Administrator access required.' }, { status: 403 })
+  }
+
+  const supabase = await getSupabaseServerClient()
+  if (!supabase) return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 500 })
+  const { data: assurance, error: assuranceError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+  if (assuranceError || (assurance?.nextLevel === 'aal2' && assurance.currentLevel !== 'aal2')) {
+    return NextResponse.json({ error: 'Complete MFA verification before synchronization.' }, { status: 403 })
+  }
+
+  const input = requestSchema.safeParse(await request.json().catch(() => null))
+  if (!input.success) return NextResponse.json({ error: 'Invalid synchronization request.' }, { status: 400 })
+  if (input.data.records.some((r) => r._status === 'DUPLICATE')) {
+    return NextResponse.json({ error: 'Resolve duplicate claims before synchronization.' }, { status: 409 })
+  }
+  if (!input.data.records.some((r) => r._status === 'NEW_RECORD' || r._status === 'EXISTING_UPDATE')) {
+    return NextResponse.json({ error: 'No new or changed records to synchronize.' }, { status: 400 })
+  }
+
+  // Elevated credentials are only used after session, active-admin and MFA checks.
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !serviceKey) {
+    return NextResponse.json({ error: 'Server-side synchronization credentials are missing.' }, { status: 500 })
+  }
+  const adminClient = createClient(url, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+
+  // The RPC revalidates all records and performs claims + history writes atomically.
+  const { data, error } = await adminClient.schema('MyanmarClaimSystem').rpc('apply_claims_sync', {
+    p_version: input.data.version,
+    p_coverage_date: input.data.coverageDate,
+    p_records: input.data.records,
+    p_actor_id: profile.id,
+  })
+  if (error) {
+    console.error('Claims sync RPC failed:', error)
+    return NextResponse.json({ error: 'Synchronization was rejected. Revalidate the upload and check server logs.' }, { status: 409 })
+  }
+  return NextResponse.json({ success: true, ...data })
 }
-
-
-
-/*
-import { NextResponse } from "next/server";
-
-// Intentionally disabled pending server-side role authorization, atomic
-// synchronization, and audit logging. Do not accept client-classified changes.
-export async function POST() {
-  return NextResponse.json(
-    { error: "Synchronization is temporarily disabled while the safe confirmation workflow is being implemented. Preview remains available." },
-    { status: 503 },
-  );
-}
-
-*/
