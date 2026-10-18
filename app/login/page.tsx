@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 
+type MfaFactor = { id: string; friendly_name?: string | null; status: string }
+
 export default function LoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState('')
@@ -15,6 +17,7 @@ export default function LoginPage() {
   const [mfaStep, setMfaStep] = useState(false)
   const [code, setCode] = useState('')
   const [factorId, setFactorId] = useState<string | null>(null)
+  const [factors, setFactors] = useState<MfaFactor[]>([])
 
   // Reset Password 相关状态
   const [resetMessage, setResetMessage] = useState<string | null>(null)
@@ -40,9 +43,16 @@ export default function LoginPage() {
       if (data.mfaRequired) {
         const factorsRes = await fetch('/api/auth/mfa/factors')
         const factorsData = await factorsRes.json()
-        const verifiedFactor = factorsData.factors?.find((f: any) => f.status === 'verified')
-        if (verifiedFactor) {
-          setFactorId(verifiedFactor.id)
+        if (!factorsRes.ok || !factorsData.ok) {
+          setError(factorsData.error || 'Unable to load authenticators. Please try again.')
+          return
+        }
+        const verifiedFactors: MfaFactor[] = (Array.isArray(factorsData.factors) ? factorsData.factors : [])
+          .filter((f: MfaFactor) => f.status === 'verified')
+        if (verifiedFactors.length > 0) {
+          setFactors(verifiedFactors)
+          setFactorId(verifiedFactors[0].id)
+          setCode('')
           setMfaStep(true)
         } else {
           setError('MFA is required but no verified factor was found. Contact your administrator.')
@@ -96,6 +106,10 @@ export default function LoginPage() {
   async function submitCode(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+    if (!factorId) {
+      setError('Please select an authenticator.')
+      return
+    }
     setSubmitting(true)
     try {
       const res = await fetch('/api/auth/mfa/verify', {
@@ -179,6 +193,23 @@ export default function LoginPage() {
               Enter the 6-digit code from your authenticator app to complete sign-in.
             </p>
             <form onSubmit={submitCode} className="grid gap-4">
+              {factors.length > 1 && (
+                <label className="label">
+                  Authenticator device
+                  <select
+                    className="input mt-1"
+                    value={factorId ?? ''}
+                    onChange={(e) => { setFactorId(e.target.value); setCode(''); setError(null) }}
+                    required
+                  >
+                    {factors.map((factor, index) => (
+                      <option key={factor.id} value={factor.id}>
+                        {factor.friendly_name?.trim() || `Unnamed authenticator ${index + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="label">
                 Verification code
                 <input
