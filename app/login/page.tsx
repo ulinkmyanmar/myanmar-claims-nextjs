@@ -160,14 +160,16 @@ export default function LoginPage() {
               <label className="label">
                 <div className="flex justify-between items-center">
                   <span>Password</span>
-                  <button
-                    type="button"
-                    onClick={handleForgotPassword}
-                    disabled={resetting}
-                    className="text-xs text-brand font-normal hover:underline disabled:opacity-50"
-                  >
-                    {resetting ? 'Sending...' : 'Forgot password?'}
-                  </button>
+                  {false && (
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      disabled={resetting}
+                      className="text-xs text-brand font-normal hover:underline disabled:opacity-50"
+                    >
+                      {resetting ? 'Sending...' : 'Forgot password?'}
+                    </button>
+                  )}
                 </div>
                 <input
                   className="input mt-1"
