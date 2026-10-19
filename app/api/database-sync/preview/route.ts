@@ -14,7 +14,10 @@ type ClaimFields = {
 type ClaimStatus = "NEW_RECORD" | "EXISTING_UPDATE" | "UNCHANGED" | "DUPLICATE";
 
 type PreviewRecord = ClaimFields & {
-  memberId: string;
+  groupKey: string;
+  historicalMemberId: string;
+  existingMemberId: string | null;
+  _memberConflict: string | null;
   _status: ClaimStatus;
   _changedFields: string[];
   _existingValues?: Record<string, unknown> | null;
@@ -115,7 +118,7 @@ export async function POST(request: Request) {
       const { data, error } = await supabase
         .schema("MyanmarClaimSystem")
         .from("mcs_claims")
-        .select("claim_no,client_name,date_of_birth,gender,incident_date,description")
+        .select("claim_no,client_name,date_of_birth,gender,incident_date,description,member_id")
         .order("id", { ascending: true })
         .range(start, start + pageSize - 1);
       if (error) throw new Error(`Could not read existing claims: ${error.message}`);
@@ -130,9 +133,12 @@ export async function POST(request: Request) {
     }
 
     const parsedRecords: PreviewRecord[] = [];
-    for (const member of memberRows) {
+    for (const [index, member] of memberRows.entries()) {
       const base = {
-        memberId: textValue(member["Historical Member ID"]),
+        groupKey: `excel-row-${index + 1}`,
+        historicalMemberId: textValue(member["Historical Member ID"]),
+        existingMemberId: null,
+        _memberConflict: null,
         clientName: textValue(member["Preferred Full Name"] || member["Normalized Name"]),
         dateOfBirth: dateValue(member["Date of Birth"]),
         gender: textValue(member["Gender"]),
@@ -157,6 +163,7 @@ export async function POST(request: Request) {
             gender: old.gender ?? null,
             incident_date: dateValue(old.incident_date),
             description: old.description ?? null,
+            member_id: old.member_id ?? null,
           };
           row._changedFields = changedFields(row, old);
           row._status = row._changedFields.length ? "EXISTING_UPDATE" : "UNCHANGED";
@@ -164,7 +171,45 @@ export async function POST(request: Request) {
       }
     }
 
+    // Resolve only through existing claim-number links, never demographic similarity.
+    const groupMembers = new Map<string, Set<string>>();
+    for (const row of parsedRecords) {
+      const set = groupMembers.get(row.groupKey) ?? new Set<string>();
+      const old = existing.get(row.claimNo);
+      if (old) {
+        if (old.member_id === null || old.member_id === undefined) {
+          row._memberConflict = "Existing claim is missing its permanent Member ID.";
+        } else set.add(String(old.member_id));
+      }
+      groupMembers.set(row.groupKey, set);
+    }
+    const memberGroups = memberRows.map((member, index) => {
+      const groupKey = `excel-row-${index + 1}`;
+      const linkedIds = [...(groupMembers.get(groupKey) ?? [])];
+      const conflict = linkedIds.length > 1
+        ? `This Excel group contains claims belonging to different Member IDs: ${linkedIds.join(", ")}`
+        : parsedRecords.some(r => r.groupKey === groupKey && r._memberConflict)
+          ? "An existing claim has no permanent Member ID." : null;
+      for (const row of parsedRecords.filter(r => r.groupKey === groupKey)) {
+        row.existingMemberId = linkedIds.length === 1 ? linkedIds[0] : null;
+        row._memberConflict = conflict;
+      }
+      return {
+        groupKey,
+        historicalMemberId: textValue(member["Historical Member ID"]),
+        clientName: textValue(member["Preferred Full Name"] || member["Normalized Name"]),
+        dateOfBirth: dateValue(member["Date of Birth"]),
+        gender: textValue(member["Gender"]),
+        existingMemberId: linkedIds.length === 1 ? linkedIds[0] : null,
+        conflict,
+        claimCount: parsedRecords.filter(r => r.groupKey === groupKey).length,
+      };
+    }).filter(g => g.claimCount > 0);
+
     return NextResponse.json({
+      memberGroups,
+      memberConflicts: memberGroups.filter(g => g.conflict).length,
+      unresolvedMembers: memberGroups.filter(g => !g.conflict && !g.existingMemberId).length,
       success: true,
       totalRows: parsedRecords.length,
       existingRecords: existing.size,

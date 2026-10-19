@@ -5,6 +5,7 @@ import { getCurrentUserProfile, getSupabaseServerClient } from '@/lib/supabase-s
 
 const recordSchema = z.object({
   claimNo: z.string().trim().min(1),
+  groupKey: z.string().trim().min(1),
   clientName: z.string(),
   dateOfBirth: z.string().nullable(),
   gender: z.string(),
@@ -13,10 +14,17 @@ const recordSchema = z.object({
   _status: z.enum(['NEW_RECORD', 'EXISTING_UPDATE', 'UNCHANGED', 'DUPLICATE']),
   _existingValues: z.object({
     client_name: z.unknown(), date_of_birth: z.unknown(), gender: z.unknown(),
-    incident_date: z.unknown(), description: z.unknown(),
+    incident_date: z.unknown(), description: z.unknown(), member_id: z.unknown(),
   }).optional(),
 })
+const resolutionSchema = z.object({
+  groupKey: z.string().trim().min(1),
+  action: z.enum(['EXISTING', 'CREATE_NEW']),
+  memberId: z.string().regex(/^[1-9]\d*$/).nullable(),
+})
+
 const requestSchema = z.object({
+  memberResolutions: z.array(resolutionSchema).min(1).max(10000),
   version: z.string().trim().min(1).max(200),
   coverageDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   records: z.array(recordSchema).min(1).max(10000),
@@ -50,6 +58,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No new or changed records to synchronize.' }, { status: 400 })
   }
 
+  const keys = new Set(input.data.memberResolutions.map(r => r.groupKey))
+  const recordKeys = new Set(input.data.records.map(r => r.groupKey))
+  if (keys.size !== input.data.memberResolutions.length || keys.size !== recordKeys.size ||
+    [...recordKeys].some(k => !keys.has(k)) ||
+    input.data.memberResolutions.some(r => (r.action === 'EXISTING') !== (r.memberId !== null))) {
+    return NextResponse.json({ error: 'Member resolution is missing or inconsistent.' }, { status: 409 })
+  }
+
   // Elevated credentials are only used after session, active-admin and MFA checks.
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -65,6 +81,7 @@ export async function POST(request: Request) {
     p_version: input.data.version,
     p_coverage_date: input.data.coverageDate,
     p_records: input.data.records,
+    p_member_resolutions: input.data.memberResolutions,
     p_actor_id: profile.id,
   })
   if (error) {

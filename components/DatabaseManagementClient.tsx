@@ -24,6 +24,7 @@ export default function DatabaseManagementClient() {
   const [syncResult, setSyncResult] = useState<any>(null)
   const [comparisonFilter, setComparisonFilter] = useState('ALL')
   const [selectedClaim, setSelectedClaim] = useState<any>(null)
+  const [memberChoices, setMemberChoices] = useState<Record<string, { action: 'EXISTING' | 'CREATE_NEW'; memberId: string | null }>>({})
 
   type SyncHistoryItem = {
     version: string
@@ -87,6 +88,7 @@ export default function DatabaseManagementClient() {
     setFileName(file.name)
     setSyncResult(null)
     setSelectedClaim(null)
+    setMemberChoices({})
     setValidated(false)
     setPreview(false)
     setMessage('')
@@ -101,6 +103,7 @@ export default function DatabaseManagementClient() {
     setMessage('')
     setSyncResult(null)
     setSelectedClaim(null)
+    setMemberChoices({})
 
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
@@ -157,6 +160,9 @@ export default function DatabaseManagementClient() {
       }
 
       setSyncResult(result)
+      setMemberChoices(Object.fromEntries((result.memberGroups || [])
+        .filter((g: any) => g.existingMemberId && !g.conflict)
+        .map((g: any) => [g.groupKey, { action: 'EXISTING', memberId: String(g.existingMemberId) }])))
       setSelectedClaim(null)
       setComparisonFilter('ALL')
       setValidated(true)
@@ -182,6 +188,14 @@ export default function DatabaseManagementClient() {
       return
     }
 
+    if ((syncResult.memberGroups || []).some((g: any) =>
+      g.conflict || !memberChoices[g.groupKey] ||
+      (memberChoices[g.groupKey].action === 'EXISTING' && !/^[1-9]\d*$/.test(memberChoices[g.groupKey].memberId || ''))
+    )) {
+      setMessage('Resolve every member group and any conflicts before confirming.')
+      return
+    }
+
     try {
       setMessage('Synchronizing data to live database...')
 
@@ -189,6 +203,7 @@ export default function DatabaseManagementClient() {
       // unchanged rows, stale values, and duplicates before any write.
       const safeRecords = (syncResult.parsedRecords || []).map((row: any) => ({
         claimNo: String(row.claimNo ?? ''),
+        groupKey: String(row.groupKey ?? ''),
         clientName: String(row.clientName ?? ''),
         dateOfBirth: row.dateOfBirth ?? null,
         gender: String(row.gender ?? ''),
@@ -207,6 +222,11 @@ export default function DatabaseManagementClient() {
           version: version.trim(),
           coverageDate,
           records: safeRecords,
+          memberResolutions: (syncResult.memberGroups || []).map((g: any) => ({
+            groupKey: g.groupKey,
+            action: memberChoices[g.groupKey]?.action,
+            memberId: memberChoices[g.groupKey]?.memberId ?? null,
+          })),
         }),
       })
 
@@ -488,6 +508,43 @@ export default function DatabaseManagementClient() {
             />
           </div>
 
+        </div>
+      )}
+
+      {/* Member identity decisions are explicit and are independently rechecked in SQL. */}
+      {preview && Array.isArray(syncResult?.memberGroups) && (
+        <div className="card">
+          <h2 className="text-2xl font-bold">Permanent Member ID matching</h2>
+          <p className="mt-2 text-muted">Claim-number links are automatic. For groups with no existing claim, choose an existing Member ID or explicitly create a new member. Do not rely on matching names alone.</p>
+          <div className="mt-4 max-h-[400px] overflow-auto rounded-xl border border-line">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead className="sticky top-0 z-10 bg-stone-50"><tr><th className="p-3">Excel group</th><th className="p-3">Member</th><th className="p-3">Claims</th><th className="p-3">Existing link</th><th className="p-3">Resolution</th></tr></thead>
+              <tbody>
+                {syncResult.memberGroups.map((g: any) => (
+                  <tr key={g.groupKey} className="border-t border-line">
+                    <td className="p-3">{g.groupKey}</td>
+                    <td className="p-3">{g.clientName}</td>
+                    <td className="p-3">{g.claimCount}</td>
+                    <td className="p-3">{g.existingMemberId ? String(g.existingMemberId).padStart(6, '0') : 'No claim link'}</td>
+                    <td className="p-3">
+                      {g.conflict ? <span className="text-red-700">Blocked: {g.conflict}</span>
+                        : g.existingMemberId ? <span>Verified existing Member ID {String(g.existingMemberId).padStart(6, '0')}</span>
+                          : <div className="flex flex-wrap items-center gap-2">
+                            <select className="rounded border p-2" value={memberChoices[g.groupKey]?.action ?? ''}
+                              onChange={e => setMemberChoices(prev => ({ ...prev, [g.groupKey]: { action: e.target.value as 'EXISTING' | 'CREATE_NEW', memberId: null } }))}>
+                              <option value="">Choose action</option><option value="EXISTING">Link existing member</option><option value="CREATE_NEW">Create new member</option>
+                            </select>
+                            {memberChoices[g.groupKey]?.action === 'EXISTING' && <input className="w-36 rounded border p-2" placeholder="Member ID e.g. 29"
+                              inputMode="numeric" value={memberChoices[g.groupKey]?.memberId ?? ''}
+                              onChange={e => setMemberChoices(prev => ({ ...prev, [g.groupKey]: { action: 'EXISTING', memberId: e.target.value.replace(/^0+(?=\d)/, '') } }))} />}
+                            {memberChoices[g.groupKey]?.action === 'CREATE_NEW' && <span className="text-amber-800">Creates a distinct permanent member on confirmation</span>}
+                          </div>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
