@@ -1,34 +1,34 @@
 'use client'
-import { Search, Info, Download } from 'lucide-react'
+import { Search, Download } from 'lucide-react'
 import { excelDateStamp, exportExcel } from '@/lib/excel-export'
 import { useEffect, useMemo, useState } from 'react'
 import { COVERAGE_DATE } from '@/lib/constants'
 
 type Claim = {
   id: number
+  member_id: number
+  member_name: string
+  date_of_birth: string | null
+  gender: string | null
   claim_no: string
-  client_name: string
-  passport_no: string | null
-  contact_no: string | null
-  email: string | null
-  claim_status: string
-  claim_type: string
+  claim_status: string | null
+  claim_type: string | null
   incident_date: string | null
   incident_country: string | null
   description: string | null
 }
 
-type FormState = { name: string; nrc: string; dob: string; gender: string }
-const EMPTY_FORM: FormState = { name: '', nrc: '', dob: '', gender: '' }
+type FormState = { name: string; dob: string; gender: string }
+const EMPTY_FORM: FormState = { name: '', dob: '', gender: '' }
 
 function fmtDate(v: string | null) {
   if (!v) return '—'
   return new Date(v).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-')
 }
 
-function statusPill(status: string) {
+function statusPill(status: string | null) {
   const cls = status === 'Completed' ? 'pill-green' : 'pill-gray'
-  return <span className={`pill ${cls}`}>{status}</span>
+  return <span className={`pill ${cls}`}>{status ?? '—'}</span>
 }
 
 export default function SearchClient({ initialQuery }: { initialQuery?: string }) {
@@ -49,6 +49,7 @@ export default function SearchClient({ initialQuery }: { initialQuery?: string }
         setClaims(null)
         return
       }
+      setSelectedKey(null)
       setClaims(data.claims ?? [])
     } catch {
       setError('Could not reach the server. Please try again.')
@@ -66,37 +67,31 @@ export default function SearchClient({ initialQuery }: { initialQuery?: string }
   function submit(e: React.FormEvent) {
     e.preventDefault()
     const name = form.name.trim()
-    const nrc = form.nrc.trim()
     const dob = form.dob.trim()
     const gender = form.gender.trim()
-
-    if (!name && !nrc && !dob && !gender) {
+    if (!name && !dob && !gender) {
       setError('Enter at least one field to search.')
       return
     }
-    if (!name && !nrc) {
-      setError('Date of Birth and Gender are reference-only right now — add a Name or NRC / National ID to search.')
-      return
-    }
-
     const params = new URLSearchParams()
     if (name) params.set('name', name)
-    if (nrc) params.set('nrc', nrc)
+    if (dob) params.set('dob', dob)
+    if (gender) params.set('gender', gender)
     runSearch(params)
   }
 
   function downloadResults() {
     if (!claims?.length) return
     const headers = [
-      'Claim No', 'Client Name', 'Passport / National ID', 'Contact No', 'Email',
+      'Member ID', 'Member Name', 'Date of Birth', 'Gender', 'Claim No',
       'Claim Status', 'Claim Type', 'Incident Date', 'Incident Country', 'Description',
     ]
     const rows = claims.map((c) => ({
+      'Member ID': String(c.member_id).padStart(6, '0'),
+      'Member Name': c.member_name,
+      'Date of Birth': c.date_of_birth,
+      Gender: c.gender,
       'Claim No': c.claim_no,
-      'Client Name': c.client_name,
-      'Passport / National ID': c.passport_no,
-      'Contact No': c.contact_no,
-      Email: c.email,
       'Claim Status': c.claim_status,
       'Claim Type': c.claim_type,
       'Incident Date': c.incident_date,
@@ -115,16 +110,18 @@ export default function SearchClient({ initialQuery }: { initialQuery?: string }
     setError(null)
   }
 
-  // Group claims by client (name + passport) since there's no separate member table
+  // Member ID is the sole identity key; same-name members stay separate.
   const groups = useMemo(() => {
     if (!claims) return []
-    const map = new Map<string, { key: string; client_name: string; passport_no: string | null; claims: Claim[] }>()
+    const map = new Map<number, { key: string; member_id: number; client_name: string; dob: string | null; gender: string | null; claims: Claim[] }>()
     for (const c of claims) {
-      const key = `${c.client_name}|${c.passport_no ?? ''}`
-      if (!map.has(key)) map.set(key, { key, client_name: c.client_name, passport_no: c.passport_no, claims: [] })
-      map.get(key)!.claims.push(c)
+      if (!map.has(c.member_id)) map.set(c.member_id, {
+        key: String(c.member_id), member_id: c.member_id, client_name: c.member_name,
+        dob: c.date_of_birth, gender: c.gender, claims: [],
+      })
+      map.get(c.member_id)!.claims.push(c)
     }
-    return Array.from(map.values())
+    return Array.from(map.values()).sort((a, b) => a.member_id - b.member_id)
   }, [claims])
 
   const selected = groups.find((g) => g.key === selectedKey) ?? groups[0] ?? null
@@ -134,7 +131,7 @@ export default function SearchClient({ initialQuery }: { initialQuery?: string }
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
         <strong>Claims data coverage:</strong> Current historical claims are covered through{' '}
         <strong>{COVERAGE_DATE}</strong>. A claim approved after this date may not appear until the next
-        database replacement.
+        database synchronization.
       </div>
 
       <div className="grid grid-cols-[1.15fr_.85fr] gap-6">
@@ -142,8 +139,8 @@ export default function SearchClient({ initialQuery }: { initialQuery?: string }
           <h1 className="text-2xl font-bold">Search claims history</h1>
 
           <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
-            <strong>Search guidance:</strong> You can search with only Name, only NRC / National ID, or
-            both together. Results are based on the member information provided.
+            <strong>Search guidance:</strong> Search by Name, Date of Birth or Gender, individually or in combination.
+            Results are grouped by permanent Member ID.
           </div>
 
           <form onSubmit={submit} className="mt-6 grid grid-cols-2 gap-4">
@@ -157,46 +154,18 @@ export default function SearchClient({ initialQuery }: { initialQuery?: string }
               />
             </label>
             <label className="label">
-              NRC / National ID
-              <input
-                className="input mt-1"
-                placeholder="e.g., 12/ABC(N)123456"
-                value={form.nrc}
-                onChange={(e) => setForm({ ...form, nrc: e.target.value })}
-              />
+              Date of Birth
+              <input className="input mt-1" type="date" value={form.dob}
+                onChange={(e) => setForm({ ...form, dob: e.target.value })} />
             </label>
             <label className="label">
-              <span className="flex items-center gap-1">
-                Date of Birth
-                <span title="Reference only — not yet supported for filtering">
-                  <Info size={14} className="text-muted" />
-                </span>
-              </span>
-              <input
-                className="input mt-1"
-                type="date"
-                value={form.dob}
-                onChange={(e) => setForm({ ...form, dob: e.target.value })}
-              />
-              <span className="mt-1 block text-xs text-muted">Reference only, not yet supported for filtering.</span>
-            </label>
-            <label className="label">
-              <span className="flex items-center gap-1">
-                Gender
-                <span title="Reference only — not yet supported for filtering">
-                  <Info size={14} className="text-muted" />
-                </span>
-              </span>
-              <select
-                className="input mt-1"
-                value={form.gender}
-                onChange={(e) => setForm({ ...form, gender: e.target.value })}
-              >
+              Gender
+              <select className="input mt-1" value={form.gender}
+                onChange={(e) => setForm({ ...form, gender: e.target.value })}>
                 <option value="">Any gender</option>
-                <option>Female</option>
-                <option>Male</option>
+                <option value="Female">Female</option>
+                <option value="Male">Male</option>
               </select>
-              <span className="mt-1 block text-xs text-muted">Reference only, not yet supported for filtering.</span>
             </label>
 
             {error && <p className="error col-span-2">{error}</p>}
@@ -227,13 +196,15 @@ export default function SearchClient({ initialQuery }: { initialQuery?: string }
               ) : (
                 <table className="mt-3 w-full border-collapse">
                   <thead>
-                    <tr><th>Client Name</th><th>Passport No</th><th>Claims</th></tr>
+                    <tr><th>Member ID</th><th>Client Name</th><th>DOB</th><th>Gender</th><th>Claims</th></tr>
                   </thead>
                   <tbody>
                     {groups.map((g) => (
                       <tr key={g.key} onClick={() => setSelectedKey(g.key)} className="cursor-pointer">
+                        <td>{String(g.member_id).padStart(6, '0')}</td>
                         <td>{g.client_name}</td>
-                        <td>{g.passport_no ?? '—'}</td>
+                        <td>{fmtDate(g.dob)}</td>
+                        <td>{g.gender ?? '—'}</td>
                         <td>{g.claims.length}</td>
                       </tr>
                     ))}
@@ -254,7 +225,9 @@ export default function SearchClient({ initialQuery }: { initialQuery?: string }
               <h2 className="text-2xl font-bold">Member Detail</h2>
               <div className="mt-4 grid grid-cols-[160px_1fr] gap-2 rounded-2xl border border-line bg-stone-50 p-4">
                 <span className="text-muted">Full Name</span><b>{selected.client_name}</b>
-                <span className="text-muted">Passport No</span><b>{selected.passport_no ?? '—'}</b>
+                <span className="text-muted">Member ID</span><b>{String(selected.member_id).padStart(6, '0')}</b>
+                <span className="text-muted">Date of Birth</span><b>{fmtDate(selected.dob)}</b>
+                <span className="text-muted">Gender</span><b>{selected.gender ?? '—'}</b>
                 <span className="text-muted">Unique Claim Count</span><b>{selected.claims.length}</b>
               </div>
               <h3 className="mt-6 font-bold">All Claim History</h3>
