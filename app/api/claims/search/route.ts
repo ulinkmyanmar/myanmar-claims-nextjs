@@ -3,7 +3,44 @@ import { getSupabaseServerClient } from '@/lib/supabase-server'
 
 const SCHEMA = 'MyanmarClaimSystem'
 const MAX_MEMBERS = 200
-const PAGE_SIZE = 500
+const MEMBER_PAGE_SIZE = 500
+const MAX_MEMBER_SCAN = 10000
+const CLAIM_PAGE_SIZE = 500
+
+type Member = {
+  id: number
+  client_name: string
+  date_of_birth: string | null
+  gender: string | null
+}
+
+function tokens(value: string): string[] {
+  return value.trim().toLocaleLowerCase('en').split(/\s+/u).filter(Boolean)
+}
+
+function withoutSpaces(value: string): string {
+  return tokens(value).join('')
+}
+
+function tokenSorted(value: string): string {
+  return tokens(value).sort().join(' ')
+}
+
+function matchesName(storedName: string, searchedName: string): boolean {
+  const name = storedName.trim().toLocaleLowerCase('en')
+  const searched = searchedName.trim().toLocaleLowerCase('en')
+  if (!searched) return true
+
+  // Ordinary full/partial search, including spaces.
+  if (name.includes(searched)) return true
+
+  // Allow searching YOONTHADARHTUN for "Yoon Thadar Htun".
+  if (withoutSpaces(name).includes(withoutSpaces(searched))) return true
+
+  // Same words, different order. Do not guess word boundaries for an
+  // unspaced name, e.g. HTUNTHADARYOON is not token-sorted automatically.
+  return tokens(searched).length > 1 && tokenSorted(name) === tokenSorted(searched)
+}
 
 export async function GET(request: Request) {
   try {
@@ -16,7 +53,7 @@ export async function GET(request: Request) {
     const name = (params.get('name') ?? '').trim()
     const dob = (params.get('dob') ?? '').trim()
     const gender = (params.get('gender') ?? '').trim()
-    const keyword = (params.get('q') ?? '').trim() // Preserve existing ?q= deep links.
+    const keyword = (params.get('q') ?? '').trim() // Preserve existing ?q= links.
 
     if (!name && !dob && !gender && !keyword) {
       return NextResponse.json({ error: 'Enter at least one search field.' }, { status: 400 })
@@ -31,52 +68,79 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Invalid gender.' }, { status: 400 })
     }
 
-    // Identity is defined by mcs_members.id, never by demographic grouping.
-    // Query 201 rows so broad searches cannot silently return a partial result.
-    let memberQuery = supabase.schema(SCHEMA).from('mcs_members')
-      .select('id,client_name,date_of_birth,gender').order('id').limit(MAX_MEMBERS + 1)
-    if (name) memberQuery = memberQuery.ilike('client_name', `%${name.replace(/[%_]/g, '')}%`)
-    if (dob) memberQuery = memberQuery.eq('date_of_birth', dob)
-    if (gender) memberQuery = memberQuery.eq('gender', gender)
-    if (keyword) memberQuery = memberQuery.ilike('client_name', `%${keyword.replace(/[%_]/g, '')}%`)
+    // Find members using the permanent registry. Matching names is only
+    // used to FIND members, never to combine their identities.
+    const memberMap = new Map<number, Member>()
+    let scanned = 0
+    for (let offset = 0; ; offset += MEMBER_PAGE_SIZE) {
+      let query = supabase.schema(SCHEMA).from('mcs_members')
+        .select('id,client_name,date_of_birth,gender')
+        .order('id').range(offset, offset + MEMBER_PAGE_SIZE - 1)
+      if (dob) query = query.eq('date_of_birth', dob)
+      if (gender) query = query.eq('gender', gender)
 
-    const { data: matchingMembers, error: memberError } = await memberQuery
-    if (memberError) throw new Error(memberError.message)
+      const { data, error } = await query
+      if (error) throw new Error(error.message)
+      const page = (data ?? []) as Member[]
+      scanned += page.length
+      if (scanned > MAX_MEMBER_SCAN) {
+        return NextResponse.json({ error: 'Member database is too large for this search mode. Contact the administrator to enable indexed name search.' }, { status: 400 })
+      }
 
-    // For legacy keyword deep links, also support finding a member by claim number.
-    const memberMap = new Map<number, { id: number; client_name: string; date_of_birth: string | null; gender: string | null }>()
-    for (const member of matchingMembers ?? []) memberMap.set(Number(member.id), member)
+      for (const member of page) {
+        if (name && !matchesName(member.client_name, name)) continue
+        // Legacy ?q= matches member names OR claim numbers.
+        if (keyword && !matchesName(member.client_name, keyword)) continue
+        memberMap.set(Number(member.id), member)
+        if (memberMap.size > MAX_MEMBERS) {
+          return NextResponse.json({ error: 'Too many matching members. Narrow your search using Name or Date of Birth.' }, { status: 400 })
+        }
+      }
+      if (page.length < MEMBER_PAGE_SIZE) break
+    }
+
     if (keyword) {
-      const { data: claimMatches, error: matchError } = await supabase.schema(SCHEMA)
-        .from('mcs_claims').select('member_id')
-        .ilike('claim_no', `%${keyword.replace(/[%_]/g, '')}%`).limit(MAX_MEMBERS + 1)
-      if (matchError) throw new Error(matchError.message)
-      const ids = [...new Set((claimMatches ?? []).map(c => Number(c.member_id)).filter(Boolean))]
-      const missingIds = ids.filter(id => !memberMap.has(id))
-      if (missingIds.length) {
-        const { data: extra, error: extraError } = await supabase.schema(SCHEMA).from('mcs_members')
-          .select('id,client_name,date_of_birth,gender').in('id', missingIds)
-        if (extraError) throw new Error(extraError.message)
-        for (const member of extra ?? []) memberMap.set(Number(member.id), member)
+      const safeKeyword = keyword.replace(/[%_,]/g, '')
+      if (safeKeyword) {
+        const { data: claimMatches, error: matchError } = await supabase.schema(SCHEMA)
+          .from('mcs_claims').select('member_id')
+          .ilike('claim_no', `%${safeKeyword}%`).limit(MAX_MEMBERS + 1)
+        if (matchError) throw new Error(matchError.message)
+        if ((claimMatches?.length ?? 0) > MAX_MEMBERS) {
+          return NextResponse.json({ error: 'Too many claim-number matches. Narrow your search.' }, { status: 400 })
+        }
+        const ids = [...new Set((claimMatches ?? []).map(c => Number(c.member_id)).filter(Boolean))]
+          .filter(id => !memberMap.has(id))
+        if (ids.length) {
+          let query = supabase.schema(SCHEMA).from('mcs_members')
+            .select('id,client_name,date_of_birth,gender').in('id', ids)
+          if (dob) query = query.eq('date_of_birth', dob)
+          if (gender) query = query.eq('gender', gender)
+          const { data: extra, error: extraError } = await query
+          if (extraError) throw new Error(extraError.message)
+          for (const member of (extra ?? []) as Member[]) {
+            if (name && !matchesName(member.client_name, name)) continue
+            memberMap.set(Number(member.id), member)
+          }
+        }
       }
     }
 
-    if ((matchingMembers?.length ?? 0) > MAX_MEMBERS || memberMap.size > MAX_MEMBERS) {
-      return NextResponse.json({ error: 'Too many matching members. Narrow your search using Name or Date of Birth.' }, { status: 400 })
+    if (memberMap.size > MAX_MEMBERS) {
+      return NextResponse.json({ error: 'Too many matching members. Narrow your search.' }, { status: 400 })
     }
     const ids = [...memberMap.keys()]
     if (ids.length === 0) return NextResponse.json({ claims: [] })
 
-    // Fetch all claims for matched member IDs; avoid Supabase's default row cap.
     const claims: Record<string, unknown>[] = []
-    for (let offset = 0; ; offset += PAGE_SIZE) {
+    for (let offset = 0; ; offset += CLAIM_PAGE_SIZE) {
       const { data, error } = await supabase.schema(SCHEMA).from('mcs_claims')
         .select('id,member_id,claim_no,client_name,claim_status,claim_type,incident_date,incident_country,description')
-        .in('member_id', ids).order('id').range(offset, offset + PAGE_SIZE - 1)
+        .in('member_id', ids).order('id').range(offset, offset + CLAIM_PAGE_SIZE - 1)
       if (error) throw new Error(error.message)
       const page = data ?? []
       claims.push(...page)
-      if (page.length < PAGE_SIZE) break
+      if (page.length < CLAIM_PAGE_SIZE) break
       if (offset >= 99500) throw new Error('Too many claims to display. Narrow the search.')
     }
 
@@ -89,7 +153,7 @@ export async function GET(request: Request) {
           date_of_birth: member.date_of_birth,
           gender: member.gender,
         }
-      })
+      }),
     })
   } catch (error) {
     console.error('Claim search failed', error)

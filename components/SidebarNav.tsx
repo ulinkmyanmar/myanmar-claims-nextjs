@@ -8,7 +8,7 @@ const nav = [
   { href: '/search', icon: Search, label: 'Search claims', minRole: 'viewer' as const },
   { href: '/bulk-census', icon: ArrowUpToLine, label: 'Bulk census', minRole: 'viewer' as const },
   { href: '/database-management', icon: Database, label: 'Database management', minRole: 'admin' as const },
-  { href: '/audit-logs', icon: ClipboardList, label: 'Audit logs', minRole: 'admin' as const },
+  //{ href: '/audit-logs', icon: ClipboardList, label: 'Audit logs', minRole: 'admin' as const },
   { href: '/settings/security', icon: ShieldCheck, label: 'Security settings', minRole: 'viewer' as const },
 ]
 
