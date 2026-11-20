@@ -29,17 +29,31 @@ function tokenSorted(value: string): string {
 function matchesName(storedName: string, searchedName: string): boolean {
   const name = storedName.trim().toLocaleLowerCase('en')
   const searched = searchedName.trim().toLocaleLowerCase('en')
+
   if (!searched) return true
 
-  // Ordinary full/partial search, including spaces.
+  // Method 1: Normal full or partial name search.
   if (name.includes(searched)) return true
 
-  // Allow searching YOONTHADARHTUN for "Yoon Thadar Htun".
-  if (withoutSpaces(name).includes(withoutSpaces(searched))) return true
+  // Method 2: Match names without spaces.
+  if (withoutSpaces(name).includes(withoutSpaces(searched))) {
+    return true
+  }
 
-  // Same words, different order. Do not guess word boundaries for an
-  // unspaced name, e.g. HTUNTHADARYOON is not token-sorted automatically.
-  return tokens(searched).length > 1 && tokenSorted(name) === tokenSorted(searched)
+  // Method 3: Partial token matching in any word order.
+  const nameWords = tokens(name)
+  const queryWords = tokens(searched)
+
+  const remaining = [...nameWords]
+
+  return queryWords.every((word) => {
+    const index = remaining.indexOf(word)
+
+    if (index === -1) return false
+
+    remaining.splice(index, 1)
+    return true
+  })
 }
 
 export async function GET(request: Request) {
