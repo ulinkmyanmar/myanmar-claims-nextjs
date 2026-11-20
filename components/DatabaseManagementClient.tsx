@@ -379,6 +379,18 @@ export default function DatabaseManagementClient() {
           />
         </div>
 
+        {/* Selected Excel file */}
+        {fileName && (
+          <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+            <p className="text-xs font-semibold text-blue-700">
+              SELECTED CLAIMS SNAPSHOT
+            </p>
+            <p className="mt-1 break-all font-semibold text-blue-900">
+              {fileName}
+            </p>
+          </div>
+        )}
+
         {/* Form */}
         <div className="mt-6 grid gap-5 border-t border-line pt-6 md:grid-cols-2">
           <div>
